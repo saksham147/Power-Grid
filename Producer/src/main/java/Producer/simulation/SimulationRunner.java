@@ -1,6 +1,7 @@
 package Producer.simulation;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicLong;
@@ -100,7 +101,7 @@ public class SimulationRunner {
      *                           noise from it.
      * @param frequencyDeviation deviation in Hz, or null for the configured default
      */
-    public List<ProducerOutputEvent> tickOnce(Long tickNumber, Double frequencyDeviation) {
+    public TickResult tickOnce(Long tickNumber, Double frequencyDeviation) {
         double deviation = frequencyDeviation != null ? frequencyDeviation : properties.frequencyDeviation();
 
         tickLock.lock();
@@ -118,7 +119,7 @@ public class SimulationRunner {
 
             List<ProducerOutputEvent> events = generationService.handleTick(new GridTickEvent(number, deviation));
             lastEventCount = events.size();
-            return events;
+            return new TickResult(number, deviation, Instant.now(), events);
         } finally {
             tickLock.unlock();
         }
