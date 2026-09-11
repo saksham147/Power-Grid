@@ -84,7 +84,7 @@
 				<configuration>
 					<!--
 					  Tests do not go through main(), so they need the UTC default set here instead.
-					  See ProducerServiceApplication.main for why it matters.
+					  See ProducerApplication.main for why it matters.
 					-->
 					<argLine>-Duser.timezone=UTC</argLine>
 				</configuration>
