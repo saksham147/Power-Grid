@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: producer-service
+
+  datasource:
+    # Port 5433, not 5432 -- docker-compose publishes there so a native Postgres install cannot
+    # silently win the port.
+    url: jdbc:postgresql://localhost:5433/powergrid
+    username: powergrid
+    password: powergrid
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        # Producer solely owns power_plant. Its own schema keeps the database-per-service boundary
+        # without forking the shared compose infrastructure into five databases.
+        default_schema: producer
+        jdbc:
+          # Makes the per-tick write-back one batched round trip rather than one UPDATE per plant.
+          batch_size: 50
+        order_updates: true
+      jakarta:
+        persistence:
+          # Hibernate emits CREATE SCHEMA for default_schema above; without this it would assume
+          # the schema already exists and fail on a fresh database.
+          create-database-schemas: true
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: producer-service
+      # A restarting Producer should join the live tick stream, not replay a backlog of stale ticks
+      # and publish outputs for simulation time that has already passed.
+      auto-offset-reset: latest
+
+logging:
+  level:
+    Producer: DEBUG
