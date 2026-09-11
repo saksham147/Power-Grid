@@ -1,0 +1,90 @@
+name: powergrid
+
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: powergrid
+      POSTGRES_USER: powergrid
+      POSTGRES_PASSWORD: powergrid
+    command:
+      # The tick engine holds one connection per worker thread; the app's Hikari pool is
+      # sized at 50, so the server must comfortably exceed that.
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+    ports:
+      # Host port 5433, not 5432: a native PostgreSQL service may already own 5432, and a
+      # published container port loses to it silently -- connections reach the wrong server and
+      # fail authentication rather than refusing, which is a confusing way to lose an afternoon.
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U powergrid -d powergrid"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: local_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@email.com
+      PGADMIN_DEFAULT_PASSWORD: adminpassword
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy # Updated to wait for the healthcheck
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+  redis:
+    image: redis:latest
+    command: ["redis-server", "--appendonly", "yes", "--databases", "16"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:latest
+    environment:
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk" # REQUIRED: Added missing Cluster ID for KRaft
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # Updated listener bindings to explicitly bind to all interfaces (0.0.0.0)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+  pgadmin-data:
