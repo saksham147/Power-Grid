@@ -48,6 +48,20 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jackson</artifactId>
 		</dependency>
+		<!--
+		  Turns this from a headless Kafka app into a servlet app: the REST controllers are how
+		  the simulation is driven while Grid (the intended owner of simulation time) does not
+		  exist yet. WebMVC rather than WebFlux on purpose: GenerationService is blocking JPA
+		  behind @Transactional, which must not run on a reactive event loop.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -68,6 +82,15 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-kafka-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  The @WebMvcTest slice. Needed so controllers can be tested without Postgres and Kafka:
+		  ProducerApplicationTests boots the full context and already requires both to be up.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

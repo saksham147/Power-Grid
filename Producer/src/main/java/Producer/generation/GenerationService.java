@@ -54,8 +54,16 @@ public class GenerationService {
         log.info("Registered {} generation strategies: {}", strategiesByType.size(), strategiesByType.keySet());
     }
 
+    /**
+     * Runs one tick and returns what it published, so an HTTP caller can be told
+     * what the tick
+     * actually did without a second read of the table.
+     *
+     * @return one event per plant that had a strategy, in table order; empty if no
+     *         plants are active
+     */
     @Transactional
-    public void handleTick(GridTickEvent tick) {
+    public List<ProducerOutputEvent> handleTick(GridTickEvent tick) {
         List<PowerPlant> plants = powerPlantRepository.findByActiveTrue();
         List<ProducerOutputEvent> events = new ArrayList<>(plants.size());
         Instant timestamp = Instant.now();
@@ -83,5 +91,7 @@ public class GenerationService {
 
         log.debug("Tick {} (deviation {} Hz): published {} output events",
                 tick.tickNumber(), tick.frequencyDeviation(), events.size());
+
+        return events;
     }
 }
