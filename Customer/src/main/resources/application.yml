@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: customer-service
+
+  # No datasource and no web server. Zones are configuration, demand is a Redis
+  # snapshot, and nothing calls this service -- it only writes to Redis and Kafka.
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      # A slow Redis must not hold up a tick. The adapter is fire-and-forget, but a
+      # bounded timeout stops a hung connection pinning resources either way.
+      timeout: 2s
+      connect-timeout: 2s
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      # A tick publishes one record per zone. Waiting a few milliseconds lets them
+      # leave as a single request instead of one round trip each.
+      linger-ms: 20
+      compression-type: lz4
+      # Leader acknowledgement only. Losing a tick of demand to a broker failure costs
+      # one sample of a continuous signal; the next tick is five seconds behind it.
+      acks: "1"
+
+customer:
+  simulation:
+    # 24 h / 288 ticks, the same cadence Producer runs at, so zone demand and plant
+    # output line up tick for tick once Distributor consumes both.
+    simulated-minutes-per-tick: 5
+    # The simulation speed: one real second of wall clock per simulated minute.
+    # Together with the line above this makes a tick fire every 5 real seconds.
+    real-seconds-per-simulated-minute: 1
+
+  # Customer counts are populations, not object counts -- see DemandModel. A zone of
+  # two million costs the same per tick as a zone of twenty.
+  zones:
+    - id: Z-NORTH
+      name: North Residential
+      customers: 250000
+      profile: RESIDENTIAL
+      base-kw-per-customer: 1.1
+      variability: 0.35
+    - id: Z-CENTRAL
+      name: Central Commercial
+      customers: 40000
+      profile: COMMERCIAL
+      base-kw-per-customer: 7.5
+      variability: 0.25
+    - id: Z-EAST
+      name: East Industrial
+      customers: 800
+      profile: INDUSTRIAL
+      base-kw-per-customer: 240.0
+      variability: 0.12
+
+logging:
+  level:
+    Customer: DEBUG
