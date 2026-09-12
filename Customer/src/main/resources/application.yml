@@ -35,25 +35,34 @@ customer:
 
   # Customer counts are populations, not object counts -- see DemandModel. A zone of
   # two million costs the same per tick as a zone of twenty.
+  #
+  # Two spreads, because they behave differently at scale. customer-variability is
+  # independent between customers, so its share of the zone total falls away as
+  # 1/sqrt(N) and a large zone barely feels it. zone-variability is shared by the whole
+  # zone -- weather, daylight, a televised event -- so it does not shrink, and it is
+  # what keeps a million-customer zone from flatlining.
   zones:
     - id: Z-NORTH
       name: North Residential
       customers: 250000
       profile: RESIDENTIAL
       base-kw-per-customer: 1.1
-      variability: 0.35
+      customer-variability: 0.35
+      zone-variability: 0.06
     - id: Z-CENTRAL
       name: Central Commercial
       customers: 40000
       profile: COMMERCIAL
       base-kw-per-customer: 7.5
-      variability: 0.25
+      customer-variability: 0.25
+      zone-variability: 0.05
     - id: Z-EAST
       name: East Industrial
       customers: 800
       profile: INDUSTRIAL
       base-kw-per-customer: 240.0
-      variability: 0.12
+      customer-variability: 0.12
+      zone-variability: 0.03
 
 logging:
   level:
