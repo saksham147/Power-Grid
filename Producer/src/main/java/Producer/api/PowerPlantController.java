@@ -10,15 +10,18 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import Producer.api.dto.CreatePlantRequest;
 import Producer.api.dto.PowerPlantResponse;
 import Producer.api.dto.UpdatePlantActiveRequest;
-import Producer.model.PlantType;
+import Producer.api.dto.UpgradePlantRequest;
 import Producer.model.PowerPlant;
 import Producer.model.PowerPlantRepository;
 import jakarta.validation.Valid;
@@ -27,12 +30,11 @@ import jakarta.validation.Valid;
  * The plant fleet: what exists, and what takes part in a tick.
  *
  * <p>
- * There is no full-update endpoint. {@link PowerPlant} exposes setters only for
- * {@code currentOutputMw} and {@code active} -- ratings are constructor-only, so
- * the entity cannot
- * be edited into a state its own generation strategy contradicts. Adding setters
- * to enable a PUT
- * would give that up for very little.
+ * Re-rating goes through {@link PowerPlant#upgrade}, not through setters. The
+ * entity still exposes
+ * no individual rating setter, so it cannot be edited into a state its own
+ * generation strategy
+ * contradicts -- an upgrade either applies as a consistent whole or is rejected.
  */
 @RestController
 @RequestMapping("/api/plants")
@@ -71,36 +73,6 @@ public class PowerPlantController {
     }
 
     /**
-     * Creates a demo fleet in one call, so the simulation has something to generate
-     * without hand
-     * writing three POSTs.
-     *
-     * <p>
-     * Refuses by default when the table is not empty: seeding on top of an existing
-     * fleet
-     * duplicates it, and a tick would then report double the events with no
-     * indication why.
-     *
-     * @param force seed regardless of what is already there
-     * @throws IllegalStateException if plants already exist and force is not set,
-     *                               mapped to 409
-     */
-    @PostMapping("/seed")
-    public ResponseEntity<List<PowerPlantResponse>> seed(@RequestParam(defaultValue = "false") boolean force) {
-        long existing = repository.count();
-        if (existing > 0 && !force) {
-            throw new IllegalStateException(
-                    "Fleet already has " + existing + " plant(s); pass ?force=true to seed on top of them");
-        }
-
-        List<PowerPlantResponse> seeded = repository.saveAll(demoFleet()).stream()
-                .map(PowerPlantResponse::from)
-                .toList();
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(seeded);
-    }
-
-    /**
      * Takes a plant in or out of service, which is the way to watch total
      * generation move without
      * touching any plant's ratings.
@@ -121,22 +93,45 @@ public class PowerPlantController {
     }
 
     /**
-     * One plant of each type, so every strategy is exercised.
+     * Re-rates a unit. PUT rather than PATCH because every field is required: a
+     * partial upgrade
+     * would need per-field null handling to express something a second call could
+     * already say.
+     *
+     * @throws IllegalArgumentException if the new ratings are inconsistent, mapped
+     *                                  to 400
+     */
+    @PutMapping("/{id}")
+    @Transactional
+    public PowerPlantResponse upgrade(@PathVariable Long id,
+            @Valid @RequestBody UpgradePlantRequest request) {
+        PowerPlant plant = repository.findById(id)
+                .orElseThrow(() -> new PlantNotFoundException(id));
+
+        plant.upgrade(request.name(), request.capacityMw(), request.minOutputMw(), request.baseOutputMw());
+
+        return PowerPlantResponse.from(plant);
+    }
+
+    /**
+     * Removes a unit permanently. Deactivating via
+     * {@code PATCH /{id}/active} is the reversible
+     * option; this is not.
      *
      * <p>
-     * The renewables carry a zero setpoint and zero minimum deliberately. Solar and
-     * wind are
-     * non-dispatchable: both strategies compute purely from {@code capacityMw} and
-     * never read
-     * {@code baseOutputMw}, so giving them a setpoint would record an instruction
-     * nothing obeys.
-     * Only the thermal unit has a real dispatch setpoint for droop to adjust
-     * around.
+     * Output events already published for this plant stay on
+     * {@code producer.output} -- they are
+     * keyed by id, so deleting the row orphans that history rather than erasing it.
      */
-    private static List<PowerPlant> demoFleet() {
-        return List.of(
-                new PowerPlant("Demo Thermal Unit", PlantType.THERMAL, 500.0, 200.0, 350.0),
-                new PowerPlant("Demo Solar Park", PlantType.SOLAR, 200.0, 0.0, 0.0),
-                new PowerPlant("Demo Wind Farm", PlantType.WIND, 150.0, 0.0, 0.0));
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) {
+        // existsById first: deleteById is silent on a missing row, which would report a
+        // successful deletion of a plant that never existed.
+        if (!repository.existsById(id)) {
+            throw new PlantNotFoundException(id);
+        }
+        repository.deleteById(id);
     }
+
 }

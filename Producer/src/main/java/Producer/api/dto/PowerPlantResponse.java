@@ -24,6 +24,7 @@ public record PowerPlantResponse(
         double minOutputMw,
         double baseOutputMw,
         double currentOutputMw,
+        double energyMwh,
         boolean active) {
 
     public static PowerPlantResponse from(PowerPlant plant) {
@@ -35,6 +36,7 @@ public record PowerPlantResponse(
                 plant.getMinOutputMw(),
                 plant.getBaseOutputMw(),
                 plant.getCurrentOutputMw(),
+                plant.getEnergyMwh(),
                 plant.isActive());
     }
 }

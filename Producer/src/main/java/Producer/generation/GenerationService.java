@@ -18,6 +18,7 @@ import Producer.model.PowerPlantRepository;
 import Producer.event.GridTickEvent;
 import Producer.event.ProducerOutputEvent;
 import Producer.kafka.ProducerOutputPublisher;
+import Producer.simulation.SimulationClock;
 
 /**
  * Turns one grid tick into one output event per active plant.
@@ -83,6 +84,10 @@ public class GenerationService {
             // single
             // batched round trip, which is why there is no saveAll call here.
             plant.setCurrentOutputMw(outputMw);
+
+            // Energy is power held over the tick's simulated duration. Same managed entity,
+            // so this rides along on the write-back rather than costing another statement.
+            plant.addEnergy(SimulationClock.energyMwh(outputMw));
 
             events.add(new ProducerOutputEvent(plant.getId(), tick.tickNumber(), outputMw, timestamp));
         }

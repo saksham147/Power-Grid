@@ -1,6 +1,5 @@
 package Producer.simulation;
 
-import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -28,6 +27,5 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  */
 @ConfigurationProperties("producer.simulation")
 public record SimulationProperties(
-        @DefaultValue("5s") Duration tickInterval,
         @DefaultValue("0.0") double frequencyDeviation) {
 }

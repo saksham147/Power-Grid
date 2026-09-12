@@ -1,30 +1,38 @@
 package Producer.simulation;
 
-import java.time.Duration;
-
 /**
- * Point-in-time view of the simulation loop.
+ * Point-in-time view of the simulation.
  *
  * <p>
- * Plain primitives rather than anything managed, so this is handed straight to
- * the HTTP layer
- * without a separate response type to keep in step with it.
+ * There is no {@code running} flag: the loop starts with the application and
+ * runs until it stops,
+ * so a caller has nothing to decide from it.
  *
- * @param running            whether the background loop is currently scheduled
- * @param currentTick        the most recently issued tick number; 0 means
- *                           nothing has ticked yet
- * @param tickInterval       interval the loop is running at, or the configured
- *                           default before a first start
- * @param frequencyDeviation deviation looped ticks are using, or the configured
- *                           default before a first start
- * @param lastEventCount     events published by the most recent tick; 0 before
- *                           the first tick, and also 0
- *                           for a tick that found no active plants
+ * @param tickNumber          the most recently issued tick; 0 means nothing has
+ *                            ticked yet
+ * @param simulatedTime       time of day that tick represents, serialised as
+ *                            {@code "14:35"}
+ * @param simulatedDay        simulated days elapsed since the service started
+ * @param tickIntervalSeconds real seconds between ticks -- fixed, and equal to
+ *                            the simulated minutes
+ *                            each tick covers, which is what makes one real
+ *                            second one simulated minute
+ * @param frequencyDeviation  deviation every tick is currently using, in Hz
+ * @param lastEventCount      events published by the most recent tick; also 0
+ *                            for a tick that found no
+ *                            active plants
+ * @param fleetOutputMw       what the fleet generated on that tick -- power, an
+ *                            instantaneous rate
+ * @param fleetEnergyMwh      what the fleet has generated in total -- energy,
+ *                            accumulated across ticks
  */
 public record SimulationStatus(
-        boolean running,
-        long currentTick,
-        Duration tickInterval,
+        long tickNumber,
+        String simulatedTime,
+        long simulatedDay,
+        long tickIntervalSeconds,
         double frequencyDeviation,
-        int lastEventCount) {
+        int lastEventCount,
+        double fleetOutputMw,
+        double fleetEnergyMwh) {
 }

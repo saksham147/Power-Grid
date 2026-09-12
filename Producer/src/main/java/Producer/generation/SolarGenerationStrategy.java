@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import Producer.model.PlantType;
 import Producer.model.PowerPlant;
 import Producer.event.GridTickEvent;
+import Producer.simulation.SimulationClock;
 
 /**
  * Simulated capacity factor for a PV farm: a diurnal curve with cloud cover on
@@ -28,8 +29,13 @@ import Producer.event.GridTickEvent;
 @Component
 public class SolarGenerationStrategy implements GenerationStrategy {
 
-    /** One simulated day. At 288 ticks that is a tick every 5 simulated minutes. */
-    private static final long TICKS_PER_DAY = 288;
+    /**
+     * One simulated day. Shared with the dashboard clock via
+     * {@link SimulationClock}, so the
+     * curve below and the time shown on screen cannot disagree about when sunrise
+     * is.
+     */
+    private static final long TICKS_PER_DAY = SimulationClock.TICKS_PER_DAY;
 
     /** Daylight window as a fraction of the day: 06:00 to 18:00. */
     private static final double SUNRISE = 0.25;

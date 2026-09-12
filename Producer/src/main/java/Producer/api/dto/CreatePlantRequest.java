@@ -37,20 +37,11 @@ public record CreatePlantRequest(
 
     /**
      * @throws IllegalArgumentException if the ratings are not internally consistent
+     *                                  -- enforced by the
+     *                                  entity, so create and upgrade reject exactly
+     *                                  the same combinations
      */
     public PowerPlant toEntity() {
-        if (minOutputMw > capacityMw) {
-            throw new IllegalArgumentException(
-                    "minOutputMw (" + minOutputMw + ") cannot exceed capacityMw (" + capacityMw + ")");
-        }
-        if (baseOutputMw > capacityMw) {
-            throw new IllegalArgumentException(
-                    "baseOutputMw (" + baseOutputMw + ") cannot exceed capacityMw (" + capacityMw + ")");
-        }
-        if (baseOutputMw < minOutputMw) {
-            throw new IllegalArgumentException(
-                    "baseOutputMw (" + baseOutputMw + ") cannot be below minOutputMw (" + minOutputMw + ")");
-        }
         return new PowerPlant(name, type, capacityMw, minOutputMw, baseOutputMw);
     }
 }
