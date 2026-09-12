@@ -23,6 +23,22 @@ spring:
       # Leader acknowledgement only. Losing a tick of demand to a broker failure costs
       # one sample of a continuous signal; the next tick is five seconds behind it.
       acks: "1"
+      properties:
+        # THE important one. KafkaTemplate.send waits on topic metadata, and on buffer
+        # space when the accumulator is full, for up to max.block.ms -- which defaults
+        # to 60 SECONDS. On a five second tick an unreachable broker would freeze the
+        # simulation rather than merely costing it events.
+        #
+        # Not lower than this, though: measured, the first send in a fresh JVM spends
+        # ~500 ms establishing the connection, so a tighter bound drops the first tick
+        # after every restart. Warm sends take ~400 microseconds. The publisher's own
+        # budget is what stops N zones each paying this against a dead broker.
+        max.block.ms: 2000
+        # Give up on a record after two ticks. By the time a longer retry succeeded, the
+        # figure would describe a moment already superseded by fresher demand, and the
+        # accumulator would be filling with stale records meanwhile.
+        request.timeout.ms: 4000
+        delivery.timeout.ms: 10000
 
 customer:
   simulation:
