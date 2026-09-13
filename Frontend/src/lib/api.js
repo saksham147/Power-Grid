@@ -68,6 +68,9 @@ export const setPlantActive = (id, active) =>
     body: JSON.stringify({ active }),
   })
 
+export const getPlantHistory = (id, { limit } = {}) =>
+  request(`/api/plants/${id}/history${limit ? `?limit=${limit}` : ''}`)
+
 
 /** No response at all (0), or the dev proxy reporting a refused upstream (502). */
 export const isUnreachable = (error) => error?.status === 0 || error?.status === 502

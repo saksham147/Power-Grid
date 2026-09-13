@@ -4,6 +4,7 @@ import * as api from './api'
 export const keys = {
   status: ['simulation', 'status'],
   plants: (activeOnly) => ['plants', { activeOnly }],
+  history: (id) => ['plants', id, 'history'],
 }
 
 /** Polls only while a run is active — an idle simulation needs no heartbeat. */
@@ -23,6 +24,20 @@ export function usePlants(activeOnly) {
     queryKey: keys.plants(activeOnly),
     queryFn: () => api.listPlants(activeOnly),
     // Output and energy are written back once per tick, so the table tracks the tick.
+    refetchInterval: 5000,
+    retry: false,
+  })
+}
+
+/** Fetched only while a row's history panel is open — the fleet table never needs it. */
+export function usePlantHistory(id, enabled) {
+  return useQuery({
+    queryKey: keys.history(id),
+    queryFn: () => api.getPlantHistory(id, { limit: 1000 }),
+    // The backend returns newest-first; a chart reads left-to-right through time.
+    select: (points) => [...points].reverse(),
+    enabled,
+    // New rows land once a tick; matches the fleet table's own cadence.
     refetchInterval: 5000,
     retry: false,
   })

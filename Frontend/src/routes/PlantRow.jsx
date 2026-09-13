@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useDeletePlant, useSetActive, useUpgradePlant } from '../lib/queries'
+import { useDeletePlant, usePlantHistory, useSetActive, useUpgradePlant } from '../lib/queries'
 import { Banner, Button, Field } from '../components/ui'
+import { HistoryChart } from '../components/HistoryChart'
 import { mw, mwh } from '../lib/format'
 
 const TONE = { THERMAL: 'bg-orange-500', SOLAR: 'bg-amber-400', WIND: 'bg-teal-500' }
@@ -16,12 +17,13 @@ function byField(details = []) {
 }
 
 export default function PlantRow({ plant }) {
-  const [mode, setMode] = useState(null) // null | 'edit' | 'confirmRemove'
+  const [mode, setMode] = useState(null) // null | 'edit' | 'confirmRemove' | 'history'
   const [draft, setDraft] = useState(plant)
 
   const setActive = useSetActive()
   const remove = useDeletePlant()
   const upgrade = useUpgradePlant(() => setMode(null))
+  const history = usePlantHistory(plant.id, mode === 'history')
 
   const busy = setActive.isPending || remove.isPending || upgrade.isPending
   const fieldErrors = byField(upgrade.error?.details)
@@ -114,6 +116,34 @@ export default function PlantRow({ plant }) {
     )
   }
 
+  if (mode === 'history') {
+    return (
+      <tr className="align-top">
+        <td colSpan={6} className="py-3">
+          <div className="rounded-lg border border-slate-300 p-4 dark:border-slate-700">
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h3 className="text-sm font-semibold">{plant.name} — generation history</h3>
+              <Button onClick={() => setMode(null)}>Close</Button>
+            </div>
+
+            {history.error && <Banner error={history.error} />}
+            {history.isLoading && <p className="text-sm text-slate-500">Loading history…</p>}
+
+            {history.data && (
+              <>
+                <HistoryChart points={history.data} type={plant.type} capacityMw={plant.capacityMw} />
+                <p className="mt-2 text-xs text-slate-500">
+                  Solid line is per-tick output; dots mark hourly averages once the raw reading has
+                  aged past retention and been rolled up.
+                </p>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
   return (
     <tr className={plant.active ? '' : 'opacity-50'}>
       <td className="py-2.5">{plant.name}</td>
@@ -155,6 +185,9 @@ export default function PlantRow({ plant }) {
               </Button>
               <Button disabled={busy} onClick={openEditor}>
                 Upgrade
+              </Button>
+              <Button disabled={busy} onClick={() => setMode('history')}>
+                History
               </Button>
               <Button variant="danger" disabled={busy} onClick={() => setMode('confirmRemove')}>
                 Remove
