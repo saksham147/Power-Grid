@@ -41,6 +41,15 @@ spring:
       auto-offset-reset: latest
 
 producer:
+  history:
+    # Raw per-tick rows are kept this long, then compressed into one row per plant per
+    # real minute -- exactly one simulated hour, which keeps the daily solar curve.
+    raw-retention: 24h
+    # How often the rollup runs. Each run moves only what has aged past raw-retention
+    # since the last one, so batches stay small and a missed run simply catches up.
+    rollup-interval: 10m
+    rollup-enabled: true
+
   simulation:
     # Defaults for the API-driven simulation loop; POST /api/simulation/start can override both
     # per run. These only apply to looped ticks -- a manual POST /api/simulation/tick carries its

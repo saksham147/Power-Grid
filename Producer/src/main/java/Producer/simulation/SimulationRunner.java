@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import Producer.event.GridTickEvent;
 import Producer.event.ProducerOutputEvent;
 import Producer.generation.GenerationService;
+import Producer.history.GenerationHistoryQuery;
 import jakarta.annotation.PreDestroy;
 
 /**
@@ -44,6 +45,7 @@ public class SimulationRunner {
 
     private final GenerationService generationService;
     private final TaskScheduler scheduler;
+    private final GenerationHistoryQuery history;
 
     /**
      * The simulation clock. Solar and wind derive time of day and weather phase
@@ -51,6 +53,11 @@ public class SimulationRunner {
      * number, so a counter that repeated or went backwards would not merely
      * mislabel events -- it
      * would visibly rewind the simulated world.
+     *
+     * <p>
+     * Not itself persisted -- {@link #startOnBoot} sets it from
+     * {@link GenerationHistoryQuery#lastKnownTick} once on every boot, so a restart resumes the
+     * simulated day and clock instead of rewinding them to midnight.
      */
     private final AtomicLong tickCounter = new AtomicLong();
 
@@ -61,6 +68,8 @@ public class SimulationRunner {
      */
     private final ReentrantLock tickLock = new ReentrantLock();
 
+    private final boolean autostart;
+
     private volatile ScheduledFuture<?> loop;
     private volatile double frequencyDeviation;
     private volatile int lastEventCount;
@@ -69,10 +78,13 @@ public class SimulationRunner {
 
     public SimulationRunner(GenerationService generationService,
             @Qualifier("simulationTaskScheduler") TaskScheduler scheduler,
-            SimulationProperties properties) {
+            SimulationProperties properties,
+            GenerationHistoryQuery history) {
         this.generationService = generationService;
         this.scheduler = scheduler;
         this.frequencyDeviation = properties.frequencyDeviation();
+        this.autostart = properties.autostart();
+        this.history = history;
     }
 
     /**
@@ -85,10 +97,27 @@ public class SimulationRunner {
      * factory both have to
      * be up. A {@code @PostConstruct} on this bean would fire while the context is
      * still wiring.
+     *
+     * <p>
+     * Resuming the counter happens here too, guarded by the same {@code loop != null} check that
+     * makes the rest of this method idempotent -- so a second {@link ApplicationReadyEvent} while a
+     * simulation is already running can never rewind a counter that has since moved on.
      */
     @EventListener(ApplicationReadyEvent.class)
     synchronized void startOnBoot() {
         if (loop != null) {
+            return;
+        }
+
+        long resumeFrom = history.lastKnownTick();
+        tickCounter.set(resumeFrom);
+        if (resumeFrom > 0) {
+            log.info("Resuming simulation at tick {} (day {}, {})", resumeFrom,
+                    SimulationClock.dayNumber(resumeFrom), SimulationClock.formatTimeOfDay(resumeFrom));
+        }
+
+        if (!autostart) {
+            log.info("Simulation autostart is off; not ticking");
             return;
         }
 

@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import Producer.history.GenerationHistoryWriter;
+import Producer.model.GenerationRecord;
 import Producer.model.PlantType;
 import Producer.model.PowerPlant;
 import Producer.model.PowerPlantRepository;
@@ -24,9 +26,11 @@ import Producer.simulation.SimulationClock;
  * Turns one grid tick into one output event per active plant.
  *
  * <p>
- * Per tick: one DB read, in-memory strategy dispatch, one batched write-back, N
- * publishes.
- * Nothing else touches Postgres.
+ * Per tick: one DB read, in-memory strategy dispatch, one batched write-back of
+ * current state, one
+ * batched insert of history, N publishes. The update and the insert share the
+ * tick's transaction,
+ * so current state and history can never disagree about what happened.
  */
 @Service
 public class GenerationService {
@@ -34,13 +38,16 @@ public class GenerationService {
     private static final Logger log = LoggerFactory.getLogger(GenerationService.class);
 
     private final PowerPlantRepository powerPlantRepository;
+    private final GenerationHistoryWriter historyWriter;
     private final ProducerOutputPublisher publisher;
     private final Map<PlantType, GenerationStrategy> strategiesByType;
 
     public GenerationService(PowerPlantRepository powerPlantRepository,
+            GenerationHistoryWriter historyWriter,
             ProducerOutputPublisher publisher,
             List<GenerationStrategy> strategies) {
         this.powerPlantRepository = powerPlantRepository;
+        this.historyWriter = historyWriter;
         this.publisher = publisher;
 
         // Spring's container is the factory: it discovers every GenerationStrategy bean
@@ -67,6 +74,7 @@ public class GenerationService {
     public List<ProducerOutputEvent> handleTick(GridTickEvent tick) {
         List<PowerPlant> plants = powerPlantRepository.findByActiveTrue();
         List<ProducerOutputEvent> events = new ArrayList<>(plants.size());
+        List<GenerationRecord> history = new ArrayList<>(plants.size());
         Instant timestamp = Instant.now();
 
         for (PowerPlant plant : plants) {
@@ -90,7 +98,13 @@ public class GenerationService {
             plant.addEnergy(SimulationClock.energyMwh(outputMw));
 
             events.add(new ProducerOutputEvent(plant.getId(), tick.tickNumber(), outputMw, timestamp));
+            // Same timestamp as the event, so a history row and its Kafka record match exactly.
+            history.add(new GenerationRecord(plant.getId(), plant.getType(), tick.tickNumber(), outputMw,
+                    tick.frequencyDeviation(), timestamp));
         }
+
+        // One JDBC batch, inside this transaction: rolls back with the write-back if the tick fails.
+        historyWriter.write(history);
 
         events.forEach(publisher::publish);
 

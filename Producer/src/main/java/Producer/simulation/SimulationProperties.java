@@ -5,27 +5,25 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Defaults for the API-driven simulation loop, bound from
- * {@code producer.simulation.*}.
+ * Settings for the simulation loop, bound from {@code producer.simulation.*}.
  *
  * <p>
- * These are defaults, not fixed settings: a start request may override either per
- * run. They apply
- * to looped ticks only -- a manual tick carries its own deviation.
+ * The {@code @DefaultValue}s duplicate {@code application.yml} on purpose, so the
+ * service still
+ * starts sanely if the block is ever removed.
  *
- * <p>
- * The {@code @DefaultValue}s duplicate what application.yml sets on purpose, so
- * the service still
- * starts with a sane loop configuration if the block is ever removed from the
- * YAML.
- *
- * @param tickInterval       wall-clock gap between looped ticks
- * @param frequencyDeviation departure from nominal grid frequency in Hz applied
- *                           to every looped tick.
- *                           Negative means the grid is running slow, i.e. demand
- *                           is outrunning generation.
+ * @param frequencyDeviation starting grid frequency deviation in Hz; changeable at
+ *                           runtime through
+ *                           {@code PUT /api/simulation/frequency-deviation}
+ * @param autostart          start ticking when the application is ready. A
+ *                           {@code @SpringBootTest}
+ *                           publishes {@code ApplicationReadyEvent} exactly like a
+ *                           real run, so tests
+ *                           turn this off or merely loading the context writes real
+ *                           rows and real events.
  */
 @ConfigurationProperties("producer.simulation")
 public record SimulationProperties(
-        @DefaultValue("0.0") double frequencyDeviation) {
+        @DefaultValue("0.0") double frequencyDeviation,
+        @DefaultValue("true") boolean autostart) {
 }
