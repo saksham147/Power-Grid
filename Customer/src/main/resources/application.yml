@@ -42,6 +42,9 @@ spring:
 
 customer:
   simulation:
+    # Start ticking when the application is ready. The context test switches this off
+    # so that loading the context does not emit real demand.
+    autostart: true
     # 24 h / 288 ticks, the same cadence Producer runs at, so zone demand and plant
     # output line up tick for tick once Distributor consumes both.
     simulated-minutes-per-tick: 5
