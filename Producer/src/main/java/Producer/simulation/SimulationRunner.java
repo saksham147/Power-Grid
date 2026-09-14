@@ -1,42 +1,28 @@
 package Producer.simulation;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.TaskScheduler;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 import Producer.event.GridTickEvent;
 import Producer.event.ProducerOutputEvent;
 import Producer.generation.GenerationService;
 import Producer.history.GenerationHistoryQuery;
-import jakarta.annotation.PreDestroy;
 
 /**
- * Drives the simulation. Starts with the application and runs until it stops --
- * there is no start
- * or stop to call.
+ * Reacts to Grid's clock.
  *
  * <p>
- * {@link GridTickEvent} states that Grid is "the single owner of simulation
- * time", and that
- * remains the intent: once Grid exists and publishes to {@code grid.tick}, that
- * is what should
- * drive this service rather than the loop here. This exists because Producer is
- * otherwise not
- * runnable on its own while Grid is still an empty skeleton.
- *
- * <p>
- * The pace is fixed by {@link SimulationClock}, not configured. See that class
- * for why.
+ * {@link GridTickEvent} states that Grid is "the single owner of simulation time", and Grid now
+ * exists: this class runs no scheduler of its own any more, and no longer accepts a frequency
+ * deviation to apply -- both moved to Grid, which publishes a tick already carrying the deviation
+ * it wants Producer's thermal governor to react to. What is left here is bookkeeping:
+ * {@link #onGridTick} turns each received tick into one call to
+ * {@link GenerationService#handleTick}, and {@link #snapshot} is what
+ * {@code GET /api/simulation/status} reads back.
  */
 @Service
 public class SimulationRunner {
@@ -44,110 +30,33 @@ public class SimulationRunner {
     private static final Logger log = LoggerFactory.getLogger(SimulationRunner.class);
 
     private final GenerationService generationService;
-    private final TaskScheduler scheduler;
-    private final GenerationHistoryQuery history;
 
     /**
-     * The simulation clock. Solar and wind derive time of day and weather phase
-     * from the tick
-     * number, so a counter that repeated or went backwards would not merely
-     * mislabel events -- it
-     * would visibly rewind the simulated world.
-     *
-     * <p>
-     * Not itself persisted -- {@link #startOnBoot} sets it from
-     * {@link GenerationHistoryQuery#lastKnownTick} once on every boot, so a restart resumes the
-     * simulated day and clock instead of rewinding them to midnight.
+     * Resumed once at construction from {@link GenerationHistoryQuery#lastKnownTick}, exactly like
+     * before Grid existed -- so the status endpoint reads sensibly in the gap between boot and the
+     * next tick actually arriving from Kafka, rather than showing tick 0 for up to five seconds.
+     * Every tick after that overwrites it with the number Grid issued.
      */
-    private final AtomicLong tickCounter = new AtomicLong();
+    private volatile long currentTick;
 
-    /**
-     * Serialises a tick against a deviation change arriving on a Tomcat thread, so
-     * a tick always
-     * runs against one deviation rather than reading it halfway through.
-     */
-    private final ReentrantLock tickLock = new ReentrantLock();
-
-    private final boolean autostart;
-
-    private volatile ScheduledFuture<?> loop;
     private volatile double frequencyDeviation;
     private volatile int lastEventCount;
     private volatile double fleetOutputMw;
     private volatile double fleetEnergyMwh;
 
-    public SimulationRunner(GenerationService generationService,
-            @Qualifier("simulationTaskScheduler") TaskScheduler scheduler,
-            SimulationProperties properties,
-            GenerationHistoryQuery history) {
+    public SimulationRunner(GenerationService generationService, GenerationHistoryQuery history) {
         this.generationService = generationService;
-        this.scheduler = scheduler;
-        this.frequencyDeviation = properties.frequencyDeviation();
-        this.autostart = properties.autostart();
-        this.history = history;
-    }
-
-    /**
-     * Starts the loop once the application is ready.
-     *
-     * <p>
-     * {@link ApplicationReadyEvent} rather than {@code @PostConstruct}: the first
-     * tick opens a
-     * transaction and publishes to Kafka, so the datasource and the producer
-     * factory both have to
-     * be up. A {@code @PostConstruct} on this bean would fire while the context is
-     * still wiring.
-     *
-     * <p>
-     * Resuming the counter happens here too, guarded by the same {@code loop != null} check that
-     * makes the rest of this method idempotent -- so a second {@link ApplicationReadyEvent} while a
-     * simulation is already running can never rewind a counter that has since moved on.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    synchronized void startOnBoot() {
-        if (loop != null) {
-            return;
-        }
 
         long resumeFrom = history.lastKnownTick();
-        tickCounter.set(resumeFrom);
+        this.currentTick = resumeFrom;
         if (resumeFrom > 0) {
-            log.info("Resuming simulation at tick {} (day {}, {})", resumeFrom,
-                    SimulationClock.dayNumber(resumeFrom), SimulationClock.formatTimeOfDay(resumeFrom));
+            log.info("Status resumes display at tick {} (day {}, {}); Grid's next tick moves it on",
+                    resumeFrom, SimulationClock.dayNumber(resumeFrom), SimulationClock.formatTimeOfDay(resumeFrom));
         }
-
-        if (!autostart) {
-            log.info("Simulation autostart is off; not ticking");
-            return;
-        }
-
-        this.loop = scheduler.scheduleAtFixedRate(this::runTick, SimulationClock.REAL_TIME_PER_TICK);
-
-        log.info("Simulation running: one tick every {} ({} simulated minutes), {} Hz deviation",
-                SimulationClock.REAL_TIME_PER_TICK,
-                SimulationClock.SIMULATED_MINUTES_PER_TICK,
-                frequencyDeviation);
-    }
-
-    /**
-     * Changes the deviation every subsequent tick uses. Takes effect on the next
-     * tick; the one in
-     * flight, if any, finishes on the value it started with.
-     */
-    public SimulationStatus setFrequencyDeviation(double deviation) {
-        tickLock.lock();
-        try {
-            this.frequencyDeviation = deviation;
-        } finally {
-            tickLock.unlock();
-        }
-
-        log.info("Frequency deviation set to {} Hz at tick {}", deviation, tickCounter.get());
-        return snapshot();
     }
 
     public SimulationStatus snapshot() {
-        long tick = tickCounter.get();
+        long tick = currentTick;
         return new SimulationStatus(
                 tick,
                 SimulationClock.formatTimeOfDay(tick),
@@ -159,49 +68,42 @@ public class SimulationRunner {
                 fleetEnergyMwh);
     }
 
-    /** Visible for tests, which drive a tick directly rather than waiting on the schedule. */
-    TickResult tickOnce() {
-        tickLock.lock();
+    /**
+     * The one entry point Grid's tick stream drives.
+     *
+     * <p>
+     * {@code autoStartup} keys off the same {@code producer.simulation.autostart} property the old
+     * scheduler used: without it, a {@code @SpringBootTest} would start this listener against a real
+     * broker the moment the context loads, exactly the problem {@code autostart} already existed to
+     * prevent.
+     *
+     * <p>
+     * A failure here is logged and swallowed rather than thrown: letting an exception escape a
+     * {@code @KafkaListener} method retries the same record forever with the default error handling,
+     * wedging this topic's one partition and silently stopping every tick after it. A dropped tick
+     * is recoverable on its own next time Grid ticks; a wedged partition is not.
+     */
+    @KafkaListener(topics = "grid.tick", autoStartup = "${producer.simulation.autostart:true}")
+    void onGridTick(GridTickEvent tick) {
         try {
-            long number = tickCounter.incrementAndGet();
-            double deviation = frequencyDeviation;
-
-            List<ProducerOutputEvent> events = generationService.handleTick(new GridTickEvent(number, deviation));
-
-            lastEventCount = events.size();
-            fleetOutputMw = events.stream().mapToDouble(ProducerOutputEvent::outputMw).sum();
-            // Summed here as well as on each plant, so a status read reports fleet power and
-            // energy from the tick that just ran rather than from a query racing the next one.
-            fleetEnergyMwh += SimulationClock.energyMwh(fleetOutputMw);
-
-            return new TickResult(number, deviation, Instant.now(), events);
-        } finally {
-            tickLock.unlock();
-        }
-    }
-
-    private void runTick() {
-        try {
-            tickOnce();
+            tickOnce(tick);
         } catch (Exception e) {
-            // Swallowed deliberately. An exception escaping here cancels the schedule, so a
-            // single bad tick -- a dropped database connection, a Kafka hiccup -- would end
-            // the simulation for the life of the process with nothing but this log to say so.
-            log.error("Tick failed; the simulation continues", e);
+            log.error("Tick {} failed; the clock continues", tick.tickNumber(), e);
         }
     }
 
-    @PreDestroy
-    synchronized void shutdown() {
-        ScheduledFuture<?> current = this.loop;
-        if (current == null) {
-            return;
-        }
+    /** Visible for tests, which drive a tick directly rather than through Kafka. */
+    List<ProducerOutputEvent> tickOnce(GridTickEvent tick) {
+        List<ProducerOutputEvent> events = generationService.handleTick(tick);
 
-        // No interrupt: a tick in flight is inside a transaction, and cutting it off
-        // mid-write to save a few seconds is a poor trade.
-        current.cancel(false);
-        this.loop = null;
-        log.info("Simulation stopped at tick {}", tickCounter.get());
+        currentTick = tick.tickNumber();
+        frequencyDeviation = tick.frequencyDeviation();
+        lastEventCount = events.size();
+        fleetOutputMw = events.stream().mapToDouble(ProducerOutputEvent::outputMw).sum();
+        // Summed here as well as on each plant, so a status read reports fleet power and
+        // energy from the tick that just ran rather than from a query racing the next one.
+        fleetEnergyMwh += SimulationClock.energyMwh(fleetOutputMw);
+
+        return events;
     }
 }

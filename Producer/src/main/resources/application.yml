@@ -51,14 +51,10 @@ producer:
     rollup-enabled: true
 
   simulation:
-    # Defaults for the API-driven simulation loop; POST /api/simulation/start can override both
-    # per run. These only apply to looped ticks -- a manual POST /api/simulation/tick carries its
-    # own deviation.
-    tick-interval: 5s
-    # Departure from nominal grid frequency in Hz. 0.0 means a balanced grid, so thermal plants
-    # sit at their dispatch setpoint and the droop response contributes nothing until something
-    # moves this.
-    frequency-deviation: 0.0
+    # Whether the grid.tick @KafkaListener auto-starts. Off in tests, so loading the context does
+    # not consume real ticks from a real broker. The pace and the frequency deviation both come
+    # from Grid now -- see Grid's own application.yml.
+    autostart: true
 
 logging:
   level:

@@ -19,7 +19,8 @@ package Producer.simulation;
  *                            the simulated minutes
  *                            each tick covers, which is what makes one real
  *                            second one simulated minute
- * @param frequencyDeviation  deviation every tick is currently using, in Hz
+ * @param frequencyDeviation  deviation the most recent tick carried, in Hz -- read-only here; it is
+ *                            set on Grid, via {@code PUT /api/grid/frequency-deviation}, not here
  * @param lastEventCount      events published by the most recent tick; also 0
  *                            for a tick that found no
  *                            active plants

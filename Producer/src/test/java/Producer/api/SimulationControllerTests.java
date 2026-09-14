@@ -1,19 +1,14 @@
 package Producer.api;
 
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,12 +16,11 @@ import Producer.simulation.SimulationRunner;
 import Producer.simulation.SimulationStatus;
 
 /**
- * Contract of the simulation endpoints.
+ * Contract of the simulation endpoint.
  *
  * <p>
- * A slice with the runner mocked, so this asserts the HTTP contract alone and
- * runs with no
- * Postgres and no Kafka.
+ * A slice with the runner mocked, so this asserts the HTTP contract alone and runs with no
+ * Postgres, no Kafka and no Grid.
  */
 @WebMvcTest(SimulationController.class)
 class SimulationControllerTests {
@@ -66,45 +60,11 @@ class SimulationControllerTests {
                 .andExpect(jsonPath("$.running").doesNotExist());
     }
 
+    /** Steering the simulation, and reading anything but its own status, both moved to Grid. */
     @Test
-    void settingTheDeviationAppliesItAndReturnsTheNewStatus() throws Exception {
-        given(runner.setFrequencyDeviation(-0.1)).willReturn(sampleStatus());
-
-        mockMvc.perform(put("/api/simulation/frequency-deviation")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"frequencyDeviation\":-0.1}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.frequencyDeviation").value(-0.1));
-
-        verify(runner).setFrequencyDeviation(-0.1);
-    }
-
-    @Test
-    void aDeviationBeyondTheBoundsIsRejected() throws Exception {
-        mockMvc.perform(put("/api/simulation/frequency-deviation")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"frequencyDeviation\":5.0}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
-
-        verify(runner, never()).setFrequencyDeviation(ArgumentMatchers.anyDouble());
-    }
-
-    /** Omitting the field must not be read as a silent return to nominal. */
-    @Test
-    void anEmptyDeviationBodyIsRejected() throws Exception {
-        mockMvc.perform(put("/api/simulation/frequency-deviation")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details").isArray());
-
-        verify(runner, never()).setFrequencyDeviation(ArgumentMatchers.anyDouble());
-    }
-
-    @Test
-    void startAndStopAreGone() throws Exception {
+    void thereIsNothingLeftToStartStopOrSteerHere() throws Exception {
         mockMvc.perform(post("/api/simulation/start")).andExpect(status().isNotFound());
         mockMvc.perform(post("/api/simulation/stop")).andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/simulation/frequency-deviation")).andExpect(status().isNotFound());
     }
 }
