@@ -86,6 +86,27 @@ class ZoneControllerTests {
     }
 
     @Test
+    void upgradesAZoneAndReturnsItsNewDetails() {
+        given(zones.save(any())).willReturn(Mono.empty());
+
+        client.put().uri("/api/zones/Z-NORTH")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {"name":"North Residential (expanded)","customers":300000,
+                         "profile":"RESIDENTIAL","baseKwPerCustomer":1.15,
+                         "customerVariability":0.35,"zoneVariability":0.06}""")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.zoneId").isEqualTo("Z-NORTH")
+                .jsonPath("$.name").isEqualTo("North Residential (expanded)")
+                .jsonPath("$.customers").isEqualTo(300000);
+
+        verify(zones).save(new Zone("Z-NORTH", "North Residential (expanded)", 300000,
+                DemandProfile.RESIDENTIAL, 1.15, 0.35, 0.06));
+    }
+
+    @Test
     void deletingAZoneReturns204() {
         given(zones.delete("Z-NORTH")).willReturn(Mono.empty());
 

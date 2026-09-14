@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -51,6 +52,22 @@ public class ZoneController {
         return zones.save(zone).thenReturn(
                 ResponseEntity.created(URI.create("/api/zones/" + zone.zoneId()))
                         .body(ZoneResponse.from(zone)));
+    }
+
+    /**
+     * Re-rates a zone: new population, profile and demand shape, applied together.
+     *
+     * <p>
+     * An upsert, not an update-or-404: {@link ZoneRepository#save} already "adds a zone, or
+     * replaces one with the same id", so a PUT against an id that does not exist yet creates it
+     * rather than failing. {@code ZoneRepository} has no {@code findById} to check existence
+     * against, and adding one just to reject this case would be a bigger change than a PUT's own
+     * idempotent-upsert semantics call for.
+     */
+    @PutMapping("/{id}")
+    public Mono<ZoneResponse> upgrade(@PathVariable String id, @Valid @RequestBody UpgradeZoneRequest request) {
+        Zone zone = request.toZone(id);
+        return zones.save(zone).thenReturn(ZoneResponse.from(zone));
     }
 
     @DeleteMapping("/{id}")
