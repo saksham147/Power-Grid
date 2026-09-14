@@ -1,0 +1,54 @@
+server:
+  # Next free port after Producer (8090), Customer (8091), Grid (8092).
+  port: 8093
+
+spring:
+  application:
+    name: distributor-service
+
+  datasource:
+    # Port 5433, not 5432 -- docker-compose publishes there so a native Postgres install cannot
+    # silently win the port.
+    url: jdbc:postgresql://localhost:5433/powergrid
+    username: powergrid
+    password: powergrid
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        # Distributor solely owns distribution_record. Its own schema keeps the
+        # database-per-service boundary without forking the shared compose infrastructure.
+        default_schema: distributor
+      jakarta:
+        persistence:
+          # Hibernate emits CREATE SCHEMA for default_schema above; without this it would assume
+          # the schema already exists and fail on a fresh database.
+          create-database-schemas: true
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: distributor-service
+      # A restarting Distributor should join the live event stream, not replay a backlog of
+      # stale supply/demand and log balances for simulated time that has already passed.
+      auto-offset-reset: latest
+    producer:
+      properties:
+        # See Customer's application.yml for why this matters: KafkaTemplate.send waits on
+        # topic metadata and buffer space for up to max.block.ms, which defaults to 60 SECONDS --
+        # long enough to freeze the pipeline behind an unreachable broker instead of just
+        # costing it a few balance events.
+        max.block.ms: 2000
+        request.timeout.ms: 4000
+        delivery.timeout.ms: 10000
+
+distributor:
+  # Whether the producer.output / customer.demand @KafkaListeners auto-start. Off in tests, so
+  # loading the context does not consume real events from a real broker.
+  autostart: true
+
+logging:
+  level:
+    Distributor: DEBUG
