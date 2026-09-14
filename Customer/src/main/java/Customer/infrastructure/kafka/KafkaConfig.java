@@ -3,25 +3,30 @@ package Customer.infrastructure.kafka;
 import java.util.Map;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
+import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
 /**
- * Kafka wiring. Producer side only -- this service consumes nothing.
+ * Kafka wiring: produces {@code customer.demand}, and -- since Grid became this system's single
+ * clock -- consumes {@code grid.tick}.
  *
  * <p>
- * Note {@code JacksonJsonSerializer} rather than {@code JsonSerializer}: under
- * Spring Boot 4 the
- * unprefixed class is the deprecated Jackson 2 binding, and the Jackson 3
- * databind this project
- * ships is what the prefixed one binds against.
+ * Note {@code JacksonJson*} rather than {@code Json*}: under Spring Boot 4 / spring-kafka 4 the
+ * unprefixed {@code JsonSerializer} and {@code JsonDeserializer} are the deprecated Jackson 2
+ * classes, and this project is on Jackson 3.
  */
 @Configuration
 public class KafkaConfig {
@@ -53,5 +58,30 @@ public class KafkaConfig {
     KafkaTemplate<String, ZoneDemandEvent> zoneDemandKafkaTemplate(
             ProducerFactory<String, ZoneDemandEvent> zoneDemandProducerFactory) {
         return new KafkaTemplate<>(zoneDemandProducerFactory);
+    }
+
+    /**
+     * The same defensive shape as Producer's: type resolved by the Java type argument rather than a
+     * Kafka type header (Grid stamps {@code Grid.event.GridTickEvent}, a class that does not exist
+     * here either), wrapped so a malformed tick cannot wedge the partition forever.
+     */
+    @Bean
+    ConsumerFactory<String, GridTickEvent> gridTickConsumerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> props = kafkaProperties.buildConsumerProperties();
+        var delegate = new JacksonJsonDeserializer<>(GridTickEvent.class, false);
+        var valueDeserializer = new ErrorHandlingDeserializer<>(delegate);
+        return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), valueDeserializer);
+    }
+
+    /**
+     * Named exactly {@code kafkaListenerContainerFactory} so {@code @KafkaListener} picks it up
+     * without naming it, and so Boot's auto-configured one backs off.
+     */
+    @Bean
+    ConcurrentKafkaListenerContainerFactory<String, GridTickEvent> kafkaListenerContainerFactory(
+            ConsumerFactory<String, GridTickEvent> gridTickConsumerFactory) {
+        var factory = new ConcurrentKafkaListenerContainerFactory<String, GridTickEvent>();
+        factory.setConsumerFactory(gridTickConsumerFactory);
+        return factory;
     }
 }

@@ -31,10 +31,12 @@
 	</properties>
 	<!--
 	  Deliberately narrow. The generated pom also carried data-jpa + postgresql,
-	  restclient, session-data-redis and webflux; none are used. This service owns no
-	  relational state (zones are configuration, demand is a Redis snapshot), calls no
-	  other service over HTTP, serves no HTTP itself, and holds no user sessions. It
-	  runs as a non-web application: a scheduled loop, Redis, and Kafka.
+	  restclient and session-data-redis; none are used. This service owns no relational
+	  state (zones are configuration, demand is a Redis snapshot), calls no other
+	  service over HTTP, and holds no user sessions. It runs as a scheduled loop plus
+	  Redis and Kafka; webflux below exists only so something outside the process can
+	  read the demand this loop already produces, not because the service needs a
+	  request/response life of its own.
 	-->
 	<dependencies>
 		<dependency>
@@ -54,6 +56,20 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jackson</artifactId>
+		</dependency>
+		<!--
+		  WebFlux, not WebMVC: the demand read path is already built on
+		  ReactiveStringRedisTemplate, so a reactive controller reads it without a second,
+		  blocking Redis client alongside the one the tick loop uses.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+		</dependency>
+		<!-- @Valid on CreateZoneRequest, for the zone management API. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
 		<dependency>
@@ -75,6 +91,15 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-kafka-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  The @WebFluxTest slice, so DemandController can be tested without Redis or
+		  Kafka; CustomerApplicationTests boots the full context and already needs both.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

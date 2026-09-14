@@ -1,9 +1,11 @@
+server:
+  port: 8091
+
 spring:
   application:
     name: customer-service
 
-  # No datasource and no web server. Zones are configuration, demand is a Redis
-  # snapshot, and nothing calls this service -- it only writes to Redis and Kafka.
+  # No datasource. Zones and demand both live in Redis; Postgres has no place here.
   data:
     redis:
       host: localhost
@@ -15,6 +17,11 @@ spring:
 
   kafka:
     bootstrap-servers: localhost:9092
+    consumer:
+      group-id: customer-service
+      # A restarting Customer should join the live tick stream, not replay a backlog of stale
+      # ticks and publish demand for simulated time that has already passed.
+      auto-offset-reset: latest
     producer:
       # A tick publishes one record per zone. Waiting a few milliseconds lets them
       # leave as a single request instead of one round trip each.
@@ -42,16 +49,18 @@ spring:
 
 customer:
   simulation:
-    # Start ticking when the application is ready. The context test switches this off
-    # so that loading the context does not emit real demand.
+    # Whether the grid.tick @KafkaListener auto-starts. Off in tests, so loading the context
+    # does not consume real ticks from a real broker and emit real demand.
     autostart: true
-    # 24 h / 288 ticks, the same cadence Producer runs at, so zone demand and plant
-    # output line up tick for tick once Distributor consumes both.
+    # Must match Grid's own (hardcoded) pace: Grid is the one clock now, and these feed only
+    # this service's own copy of the tick/time-of-day math, not the tick number itself.
     simulated-minutes-per-tick: 5
-    # The simulation speed: one real second of wall clock per simulated minute.
-    # Together with the line above this makes a tick fire every 5 real seconds.
     real-seconds-per-simulated-minute: 1
 
+  # The zones an installation starts with. Read once, at first boot, to seed Redis -- see
+  # RedisZoneRepository -- and never again after that: POST/DELETE /api/zones is how the fleet
+  # changes from here on, and it changes Redis, not this file.
+  #
   # Customer counts are populations, not object counts -- see DemandModel. A zone of
   # two million costs the same per tick as a zone of twenty.
   #

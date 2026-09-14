@@ -1,5 +1,6 @@
 package Customer.infrastructure.redis;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -9,9 +10,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import Customer.application.CurrentDemand;
 import Customer.application.DemandSnapshot;
 import Customer.application.DemandStateStore;
 import Customer.domain.ZoneDemand;
+import reactor.core.publisher.Mono;
 
 /**
  * Records the latest demand in Redis.
@@ -40,7 +43,8 @@ import Customer.domain.ZoneDemand;
  * and are on every
  * Kafka record already; history belongs to the event stream. A cache that tried
  * to be either
- * would be a worse version of something that already exists.
+ * would be a worse version of something that already exists. {@code Customer.api.DemandController}
+ * is what joins {@link #current} back against that configuration for a caller that wants both.
  */
 @Component
 public class RedisDemandStateStore implements DemandStateStore {
@@ -74,6 +78,46 @@ public class RedisDemandStateStore implements DemandStateStore {
                 .putAll(KEY, fields)
                 .subscribe(written -> {
                 }, this::recordFailure);
+    }
+
+    /**
+     * Reads the hash back, for {@code GET /api/demand} -- the one caller of this method, since the
+     * tick loop only ever writes.
+     *
+     * <p>
+     * A blocking read would be wrong here for the opposite reason {@link #save} is fire-and-forget:
+     * this runs on a request thread with an actual response waiting on it, so waiting for Redis is
+     * the point, not something to avoid. {@code Mono.empty()} when the key does not exist yet -- a
+     * fresh install, or a request that lands before the first tick.
+     */
+    @Override
+    public Mono<CurrentDemand> current() {
+        return redis.<String, String>opsForHash().entries(KEY)
+                .collectMap(Map.Entry::getKey, Map.Entry::getValue)
+                .filter(fields -> !fields.isEmpty())
+                .map(RedisDemandStateStore::toCurrentDemand);
+    }
+
+    private static CurrentDemand toCurrentDemand(Map<String, String> fields) {
+        Map<String, Double> byZone = new LinkedHashMap<>();
+        long tick = 0;
+        double totalKw = 0;
+        Instant updatedAt = null;
+
+        for (Map.Entry<String, String> field : fields.entrySet()) {
+            String key = field.getKey();
+            if (key.startsWith(ZONE_FIELD_PREFIX)) {
+                byZone.put(key.substring(ZONE_FIELD_PREFIX.length()), Double.parseDouble(field.getValue()));
+            } else if (key.equals("tick")) {
+                tick = Long.parseLong(field.getValue());
+            } else if (key.equals("totalKw")) {
+                totalKw = Double.parseDouble(field.getValue());
+            } else if (key.equals("updatedAt")) {
+                updatedAt = Instant.parse(field.getValue());
+            }
+        }
+
+        return new CurrentDemand(tick, updatedAt, totalKw, Map.copyOf(byZone));
     }
 
     /** Fixed to one decimal: kW below that is noise, and it keeps the value readable in redis-cli. */

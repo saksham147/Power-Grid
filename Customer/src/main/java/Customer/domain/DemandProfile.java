@@ -22,14 +22,19 @@ import java.time.LocalTime;
  */
 public enum DemandProfile {
 
-    /** Low overnight, a morning bump, a midday dip, and a pronounced evening peak. */
+    /**
+     * Medium through the working day, high at night. Appliances -- laundry, dishwashers, EV
+     * charging, AC and heating held on a thermostat rather than a schedule -- keep the evening
+     * and night hours the highest part of the curve, not just a peak that immediately falls away.
+     */
     RESIDENTIAL(
             new double[] {
-                    0.55, 0.50, 0.48, 0.48, 0.52, 0.65, 0.85, 1.05,
-                    1.00, 0.90, 0.85, 0.85, 0.88, 0.85, 0.82, 0.85,
-                    0.95, 1.20, 1.55, 1.60, 1.45, 1.15, 0.85, 0.65 },
-            // People are home more at weekends, so the curve lifts rather than collapsing.
-            1.08),
+                    0.70, 0.62, 0.55, 0.52, 0.55, 0.65, 0.85, 1.00,
+                    0.95, 0.85, 0.80, 0.80, 0.82, 0.80, 0.78, 0.80,
+                    0.90, 1.15, 1.50, 1.65, 1.60, 1.40, 1.10, 0.85 },
+            // People are home all day at weekends, so the whole curve lifts substantially rather
+            // than just the evening peak -- weekends read as "high", not "weekday plus a bit".
+            1.30),
 
     /** Near-nothing overnight, ramps at opening, plateaus through business hours. */
     COMMERCIAL(

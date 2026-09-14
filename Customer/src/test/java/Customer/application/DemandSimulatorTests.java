@@ -18,9 +18,8 @@ import Customer.domain.ZoneDemand;
  * The use case, driven against fakes.
  *
  * <p>
- * No Spring context, no broker, no Redis: {@code DemandSimulator} depends only
- * on two interfaces,
- * so a lambda is a sufficient adapter.
+ * No Spring context, no broker, no Redis: {@code DemandSimulator} depends only on three
+ * interfaces, so a lambda is a sufficient adapter for each.
  */
 class DemandSimulatorTests {
 
@@ -37,12 +36,12 @@ class DemandSimulatorTests {
         var publishes = new AtomicInteger();
         var saves = new AtomicInteger();
 
-        var simulator = new DemandSimulator(THREE_ZONES, CLOCK,
+        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK,
                 snapshot -> publishes.incrementAndGet(),
                 snapshot -> saves.incrementAndGet());
 
-        for (int i = 0; i < 10; i++) {
-            simulator.tick();
+        for (int tick = 1; tick <= 10; tick++) {
+            simulator.tick(tick);
         }
 
         assertThat(publishes).hasValue(10);
@@ -53,10 +52,10 @@ class DemandSimulatorTests {
     @Test
     void aggregatesEveryZoneAndTotalsThem() {
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(THREE_ZONES, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK, captured::add, snapshot -> {
         });
 
-        simulator.tick();
+        simulator.tick(1);
         DemandSnapshot snapshot = captured.getFirst();
 
         assertThat(snapshot.zones()).hasSize(3)
@@ -76,63 +75,68 @@ class DemandSimulatorTests {
     @Test
     void aThrowingPublisherCostsNeitherTheTickNorTheOtherPort() {
         var saves = new AtomicInteger();
-        var simulator = new DemandSimulator(THREE_ZONES, CLOCK,
+        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK,
                 snapshot -> {
                     throw new IllegalStateException("broker exploded");
                 },
                 snapshot -> saves.incrementAndGet());
 
-        assertThatCode(simulator::tick).doesNotThrowAnyException();
+        assertThatCode(() -> simulator.tick(1)).doesNotThrowAnyException();
         assertThat(saves).hasValue(1);
     }
 
     @Test
     void aThrowingStateStoreCostsNeitherTheTickNorTheOtherPort() {
         var publishes = new AtomicInteger();
-        var simulator = new DemandSimulator(THREE_ZONES, CLOCK,
+        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK,
                 snapshot -> publishes.incrementAndGet(),
                 snapshot -> {
                     throw new IllegalStateException("redis exploded");
                 });
 
-        assertThatCode(simulator::tick).doesNotThrowAnyException();
+        assertThatCode(() -> simulator.tick(1)).doesNotThrowAnyException();
         assertThat(publishes).hasValue(1);
     }
 
     @Test
     void anEmptyFleetOfZonesTicksWithoutFailing() {
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(List.of(), CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(List::of, CLOCK, captured::add, snapshot -> {
         });
 
-        simulator.tick();
+        simulator.tick(1);
 
         assertThat(captured.getFirst().zones()).isEmpty();
         assertThat(captured.getFirst().totalKw()).isZero();
     }
 
-    /** The simulator must not alias a caller's list, or a later mutation would change the fleet. */
+    /**
+     * The whole point of reading {@link ZoneRepository#findAll} fresh every tick rather than once
+     * at construction: an add or delete is visible on the very next tick, with no restart needed.
+     */
     @Test
-    void copiesTheZoneListItWasGiven() {
-        var mutable = new ArrayList<>(THREE_ZONES);
+    void aZoneAddedBetweenTicksAppearsOnTheNextOne() {
+        List<Zone> fleet = new ArrayList<>(List.of(THREE_ZONES.get(0)));
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(mutable, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(() -> fleet, CLOCK, captured::add, snapshot -> {
         });
 
-        mutable.clear();
-        simulator.tick();
+        simulator.tick(1);
+        fleet.add(THREE_ZONES.get(1));
+        simulator.tick(2);
 
-        assertThat(captured.getFirst().zones()).hasSize(3);
+        assertThat(captured.get(0).zones()).hasSize(1);
+        assertThat(captured.get(1).zones()).hasSize(2);
     }
 
     /** The snapshot handed to a port must not be mutable by it. */
     @Test
     void snapshotZonesAreImmutable() {
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(THREE_ZONES, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK, captured::add, snapshot -> {
         });
 
-        simulator.tick();
+        simulator.tick(1);
 
         assertThatCode(() -> captured.getFirst().zones().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
