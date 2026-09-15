@@ -36,41 +36,13 @@ async function request(path, options) {
   return res.status === 204 ? null : res.json()
 }
 
-const post = (path, body) =>
-  request(path, {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-
 export const getStatus = () => request('/api/simulation/status')
-export const setFrequencyDeviation = (frequencyDeviation) =>
-  request('/api/simulation/frequency-deviation', {
-    method: 'PUT',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ frequencyDeviation }),
-  })
 
-export const listPlants = (activeOnly) =>
-  request(`/api/plants${activeOnly ? '?activeOnly=true' : ''}`)
-export const createPlant = (body) => post('/api/plants', body)
+export const listPlants = () => request('/api/plants')
+export const createPlant = (body) =>
+  request('/api/plants', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) })
 export const upgradePlant = (id, body) =>
-  request(`/api/plants/${id}`, {
-    method: 'PUT',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(body),
-  })
+  request(`/api/plants/${id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) })
 export const deletePlant = (id) => request(`/api/plants/${id}`, { method: 'DELETE' })
-export const setPlantActive = (id, active) =>
-  request(`/api/plants/${id}/active`, {
-    method: 'PATCH',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ active }),
-  })
-
 export const getPlantHistory = (id, { limit } = {}) =>
   request(`/api/plants/${id}/history${limit ? `?limit=${limit}` : ''}`)
-
-
-/** No response at all (0), or the dev proxy reporting a refused upstream (502). */
-export const isUnreachable = (error) => error?.status === 0 || error?.status === 502
