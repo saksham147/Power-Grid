@@ -1,0 +1,50 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: grid-service
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2s
+      connect-timeout: 2s
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: grid-service
+      # A restarting Grid should join the live output/balance stream, not replay a backlog of
+      # stale figures and compute a deviation for simulated time that has already passed.
+      auto-offset-reset: latest
+    producer:
+      # A tick is one record; nothing to batch. Kept short anyway so a slow broker
+      # cannot silently stretch the tick interval.
+      properties:
+        max.block.ms: 2000
+        request.timeout.ms: 4000
+        delivery.timeout.ms: 10000
+
+grid:
+  simulation:
+    # Start ticking when the application is ready, and start the producer.output /
+    # distributor.zone-balance listeners with it. The context test switches this off so that
+    # loading the context does not tick or consume against real Redis and Kafka.
+    autostart: true
+    # Starting grid frequency deviation in Hz. Only the starting value while auto-control is on --
+    # see below -- since every tick after the first overwrites it with Grid's own computation.
+    frequency-deviation: 0.0
+    # Whether Grid computes its own deviation from Producer's and Distributor's published figures
+    # each tick, rather than only ever carrying whatever a human last set through the API.
+    auto-control: true
+    # Hz of deviation per 100% of demand the fleet is mismatched by -- see FrequencyController.
+    auto-control-gain: 2.0
+    # Clamp on the computed deviation, in Hz. Matches FrequencyDeviationRequest's own manual
+    # bound, so automatic and manual control never disagree about how far this model may drift.
+    auto-control-max-deviation: 0.25
+
+logging:
+  level:
+    Grid: DEBUG
