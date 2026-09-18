@@ -55,6 +55,12 @@ public class SimulationRunner {
         }
     }
 
+    /** The most recently seen tick number -- used as the default starting point for a forecast
+     *  ({@code Producer.generation.ForecastService}), which otherwise has no notion of "now". */
+    public long currentTick() {
+        return currentTick;
+    }
+
     public SimulationStatus snapshot() {
         long tick = currentTick;
         return new SimulationStatus(

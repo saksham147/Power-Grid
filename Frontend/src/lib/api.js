@@ -46,3 +46,7 @@ export const upgradePlant = (id, body) =>
 export const deletePlant = (id) => request(`/api/plants/${id}`, { method: 'DELETE' })
 export const getPlantHistory = (id, { limit } = {}) =>
   request(`/api/plants/${id}/history${limit ? `?limit=${limit}` : ''}`)
+
+/** Solar/wind only -- THERMAL has no forecastable basis, see Producer.generation.ForecastService. */
+export const getPlantForecast = (id, { ticks } = {}) =>
+  request(`/api/plants/${id}/forecast${ticks ? `?ticks=${ticks}` : ''}`)

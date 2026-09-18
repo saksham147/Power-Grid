@@ -20,9 +20,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import Producer.generation.ForecastService;
+import Producer.kafka.PlantRosterPublisher;
 import Producer.model.PlantType;
 import Producer.model.PowerPlant;
 import Producer.model.PowerPlantRepository;
+import Producer.simulation.SimulationRunner;
 
 /**
  * Contract of the removal and upgrade endpoints.
@@ -43,6 +46,15 @@ class PowerPlantControllerTests {
     @MockitoBean
     private PowerPlantRepository repository;
 
+    @MockitoBean
+    private PlantRosterPublisher rosterPublisher;
+
+    @MockitoBean
+    private ForecastService forecastService;
+
+    @MockitoBean
+    private SimulationRunner simulationRunner;
+
     private static PowerPlant thermal() {
         return new PowerPlant("Ratnagiri Thermal Unit 1", PlantType.THERMAL, 500, 200, 400);
     }
@@ -51,17 +63,17 @@ class PowerPlantControllerTests {
 
     @Test
     void deletingAPlantReturns204() throws Exception {
-        given(repository.existsById(1L)).willReturn(true);
+        given(repository.findById(1L)).willReturn(Optional.of(thermal()));
 
         mockMvc.perform(delete("/api/plants/1")).andExpect(status().isNoContent());
 
         verify(repository).deleteById(1L);
     }
 
-    /** deleteById is silent on a missing row, so a bare call would report a false success. */
+    /** findById is how the roster-removed event gets the plant's last known rating. */
     @Test
     void deletingAnUnknownPlantIs404AndDeletesNothing() throws Exception {
-        given(repository.existsById(99L)).willReturn(false);
+        given(repository.findById(99L)).willReturn(Optional.empty());
 
         mockMvc.perform(delete("/api/plants/99"))
                 .andExpect(status().isNotFound())

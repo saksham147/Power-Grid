@@ -25,7 +25,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-  
+    # See the "application services" comment block below for why every service in this file
+    # now carries a memory ceiling.
+    mem_limit: 256m
+    restart: unless-stopped
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: local_pgadmin
@@ -40,6 +44,7 @@ services:
         condition: service_healthy # Updated to wait for the healthcheck
     volumes:
       - pgadmin-data:/var/lib/pgadmin
+    mem_limit: 300m
 
   redis:
     image: redis:latest
@@ -53,6 +58,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    mem_limit: 100m
+    restart: unless-stopped
 
   kafka:
     image: apache/kafka:latest
@@ -72,6 +79,9 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Unset, the broker's own JVM sizes its heap off whatever memory it can see -- which
+      # without this cap would be this whole host's, not this container's 420m ceiling.
+      KAFKA_HEAP_OPTS: "-Xmx224m -Xms224m"
     ports:
       - "9092:9092"
     volumes:
@@ -82,9 +92,145 @@ services:
       timeout: 10s
       retries: 12
       start_period: 20s
+    mem_limit: 420m
+    restart: unless-stopped
+
+  # ---- application services -------------------------------------------------------------
+  #
+  # None of the five change application.yml: every localhost/5433 default in there is still
+  # correct for running a service directly on the host (./mvnw spring-boot:run), which stays a
+  # valid way to work on one service. These `environment:` blocks are Spring Boot's own
+  # relaxed-binding env-var overrides (spring.datasource.url -> SPRING_DATASOURCE_URL, etc.),
+  # supplying container-network values -- the Postgres/Kafka/Redis service names Compose's
+  # built-in DNS resolves, and Kafka's INTERNAL listener (kafka:29092) rather than the
+  # PLAINTEXT one the host uses (localhost:9092) -- only when running under Compose.
+  #
+  # Every service below (and every infra one above) now also carries a `mem_limit`. Found live,
+  # the hard way: with none set, all nine containers compete for the same unbounded pool the
+  # Docker/WSL2 VM happens to have (3.6 GB here) -- five JVMs each sizing a chunk of the *whole
+  # visible pool* is exactly how one of them tips the total over the edge and the VM's own OOM
+  # killer takes down every container at once, Postgres and Kafka included, with no relation to
+  # which one actually grew. A per-container ceiling turns that into, at worst, one container
+  # restarting alone. Each Java service's Dockerfile pairs its ceiling with
+  # `-XX:MaxRAMPercentage`, so the JVM sizes its heap off *this* number, not the host's.
+
+  producer:
+    build:
+      context: ./Producer
+    ports:
+      - "8090:8090"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/powergrid
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    mem_limit: 400m
+    restart: unless-stopped
+
+  customer:
+    build:
+      context: ./Customer
+    ports:
+      - "8091:8091"
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    mem_limit: 340m
+    restart: unless-stopped
+
+  grid:
+    build:
+      context: ./Grid
+    ports:
+      - "8092:8092"
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    mem_limit: 340m
+    restart: unless-stopped
+
+  distributor:
+    build:
+      context: ./Distributor
+    ports:
+      - "8093:8093"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/powergrid
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    mem_limit: 400m
+    restart: unless-stopped
+
+  billing:
+    build:
+      context: ./Billing
+    ports:
+      - "8094:8094"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/powergrid
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    mem_limit: 380m
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./Frontend
+    ports:
+      - "5173:5173"
+    environment:
+      # Service names, not localhost -- see vite.config.js's own comment on why.
+      PRODUCER_HOST: producer
+      CUSTOMER_HOST: customer
+      GRID_HOST: grid
+      DISTRIBUTOR_HOST: distributor
+      BILLING_HOST: billing
+      # Vite's file watcher (chokidar) misses change events on a bind-mounted volume under
+      # Docker Desktop on Windows/macOS without this -- the underlying filesystem event API
+      # doesn't cross the VM boundary the mount is proxied through.
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      # Live source, so editing on the host hot-reloads exactly like a local `npm run dev`.
+      - ./Frontend:/app
+      # ...except node_modules: masks the bind mount for just this one path with a volume
+      # populated by `npm install` *inside* the container, so it holds Linux-native
+      # esbuild/rollup binaries rather than whatever the host's own `npm install` produced.
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - producer
+      - customer
+      - grid
+      - distributor
+      - billing
+    mem_limit: 350m
+    restart: unless-stopped
 
 volumes:
   postgres-data:
   redis-data:
   kafka-data:
   pgadmin-data:
+  frontend-node-modules:

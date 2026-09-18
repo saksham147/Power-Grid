@@ -58,39 +58,52 @@ customer:
     real-seconds-per-simulated-minute: 1
 
   # The zones an installation starts with. Read once, at first boot, to seed Redis -- see
-  # RedisZoneRepository -- and never again after that: POST/DELETE /api/zones is how the fleet
-  # changes from here on, and it changes Redis, not this file.
+  # RedisZoneRepository -- and never again after that: POST/PUT/DELETE /api/zones is how the
+  # fleet changes from here on, and it changes Redis, not this file.
   #
-  # Customer counts are populations, not object counts -- see DemandModel. A zone of
-  # two million costs the same per tick as a zone of twenty.
-  #
-  # Two spreads, because they behave differently at scale. customer-variability is
-  # independent between customers, so its share of the zone total falls away as
-  # 1/sqrt(N) and a large zone barely feels it. zone-variability is shared by the whole
-  # zone -- weather, daylight, a televised event -- so it does not shrink, and it is
-  # what keeps a million-customer zone from flatlining.
+  # A zone is a pure container now -- see Zone and DemandModel -- so there is nothing here but
+  # an id and a name. Its demand comes entirely from the units seeded below.
   zones:
     - id: Z-NORTH
       name: North Residential
-      customers: 250000
-      profile: RESIDENTIAL
-      base-kw-per-customer: 1.1
-      customer-variability: 0.35
-      zone-variability: 0.06
     - id: Z-CENTRAL
       name: Central Commercial
-      customers: 40000
-      profile: COMMERCIAL
-      base-kw-per-customer: 7.5
-      customer-variability: 0.25
-      zone-variability: 0.05
     - id: Z-EAST
       name: East Industrial
-      customers: 800
-      profile: INDUSTRIAL
-      base-kw-per-customer: 240.0
-      customer-variability: 0.12
-      zone-variability: 0.03
+
+  # The houses, factories and commercial buildings an installation starts with, each belonging
+  # to one of the zones above. Read once, at first boot, to seed Redis -- see
+  # RedisConsumerUnitRepository -- and never again after that: POST/PUT/DELETE /api/units is how
+  # the fleet changes from here on.
+  #
+  # capacity-kw is a unit's rated demand at a profile factor of 1.0 -- see DemandModel -- sized
+  # like a real building (hundreds to low thousands of kW), not a population.
+  units:
+    - unit-id: U-NORTH-A
+      zone-id: Z-NORTH
+      name: North Homes A
+      type: RESIDENTIAL
+      capacity-kw: 800
+    - unit-id: U-NORTH-B
+      zone-id: Z-NORTH
+      name: North Homes B
+      type: RESIDENTIAL
+      capacity-kw: 650
+    - unit-id: U-CENTRAL-A
+      zone-id: Z-CENTRAL
+      name: Central Offices
+      type: COMMERCIAL
+      capacity-kw: 1200
+    - unit-id: U-CENTRAL-B
+      zone-id: Z-CENTRAL
+      name: Central Mall
+      type: COMMERCIAL
+      capacity-kw: 900
+    - unit-id: U-EAST-A
+      zone-id: Z-EAST
+      name: East Plant
+      type: INDUSTRIAL
+      capacity-kw: 2000
 
 logging:
   level:

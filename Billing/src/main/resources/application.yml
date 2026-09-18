@@ -1,0 +1,70 @@
+server:
+  # Next free port after Producer (8090), Customer (8091), Grid (8092), Distributor (8093).
+  port: 8094
+
+spring:
+  application:
+    name: billing-service
+
+  datasource:
+    # Port 5433, not 5432 -- docker-compose publishes there so a native Postgres install cannot
+    # silently win the port.
+    url: jdbc:postgresql://localhost:5433/powergrid
+    username: powergrid
+    password: powergrid
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        # Billing solely owns wallet/billing_record/wallet_transaction. Its own schema keeps the
+        # database-per-service boundary without forking the shared compose infrastructure.
+        default_schema: billing
+      jakarta:
+        persistence:
+          # Hibernate emits CREATE SCHEMA for default_schema above; without this it would assume
+          # the schema already exists and fail on a fresh database.
+          create-database-schemas: true
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: billing-service
+      # A restarting Billing should join the live demand stream, not replay a backlog of stale
+      # ticks -- the idempotency check on (zone_id, tick_number) makes a replay harmless either
+      # way, but there is no reason to pay for reprocessing that can't change anything.
+      auto-offset-reset: latest
+
+billing:
+  # Flat rate for every zone. The spec doesn't ask for per-zone or per-profile pricing, so one
+  # property is enough.
+  rate-per-kwh: 8.0
+  # Demand above a zone's Distributor-assigned capacity is still billed, never refused, but at this
+  # multiple of rate-per-kwh -- see Billing.billing.BillingCycleService. A zone with no capacity
+  # assigned is unaffected by this.
+  overage-rate-multiplier: 1.5
+  # Applied once, the first time a zone's wallet is lazily created.
+  starting-balance: 10000.0
+  # Fraction of a fresh-build price refunded when a plant is decommissioned -- see
+  # Billing.api.WalletController#decommissionPlant.
+  decommission-refund-ratio: 0.5
+  maintenance:
+    # ISO-8601, not Boot's "10m" shorthand -- fed straight into @Scheduled's fixedDelayString,
+    # same reason as billing.history.rollup-interval below.
+    interval: PT10M
+    enabled: true
+  # Whether the customer.demand @KafkaListener auto-starts. Off in tests, so loading the context
+  # does not consume real events from a real broker.
+  autostart: true
+  history:
+    # Simulated, not wall-clock, days -- see Billing.history.BillingRollupJob for why.
+    raw-retention-days: 15
+    # ISO-8601, not Boot's "10m" shorthand: this value is also fed straight into @Scheduled's
+    # fixedDelayString, whose Duration parsing is stricter than @ConfigurationProperties binding.
+    rollup-interval: PT10M
+    rollup-enabled: true
+
+logging:
+  level:
+    Billing: DEBUG

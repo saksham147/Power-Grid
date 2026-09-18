@@ -19,6 +19,10 @@ package Grid.simulation;
  *                            demand against
  * @param totalDemandKw       system-wide demand {@link Grid.simulation.GridStateTracker} currently
  *                            knows about, in kW
+ * @param loadExceeded        whether {@code totalDemandKw} exceeded {@code totalSupplyKw} on the
+ *                            most recent tick -- a hard boolean failure state, distinct from
+ *                            {@code frequencyDeviation}, which only ever reports how far off
+ *                            frequency drifted, not whether demand could actually be met
  */
 public record GridStatus(
         long tickNumber,
@@ -28,5 +32,6 @@ public record GridStatus(
         double frequencyDeviation,
         boolean autoControlEnabled,
         double totalSupplyKw,
-        double totalDemandKw) {
+        double totalDemandKw,
+        boolean loadExceeded) {
 }

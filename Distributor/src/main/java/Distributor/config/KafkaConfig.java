@@ -21,8 +21,10 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
 import Distributor.event.ProducerOutputEvent;
 import Distributor.event.ZoneBalanceEvent;
+import Distributor.event.ZoneCapacityEvent;
 import Distributor.event.ZoneDemandEvent;
 import Distributor.kafka.ZoneBalancePublisher;
+import Distributor.kafka.ZoneCapacityEventPublisher;
 
 /**
  * Kafka wiring: consumes {@code producer.output} and {@code customer.demand}, produces
@@ -51,6 +53,16 @@ public class KafkaConfig {
     @Bean
     NewTopic distributorZoneBalanceTopic() {
         return TopicBuilder.name(ZoneBalancePublisher.TOPIC)
+                .partitions(BALANCE_TOPIC_PARTITIONS)
+                .replicas(BALANCE_TOPIC_REPLICAS)
+                .build();
+    }
+
+    /** Same partitioning as the balance topic -- see above; capacity changes are low-volume but
+     *  still keyed by zone id, so one partition each is enough to keep a zone's own history ordered. */
+    @Bean
+    NewTopic distributorZoneCapacityTopic() {
+        return TopicBuilder.name(ZoneCapacityEventPublisher.TOPIC)
                 .partitions(BALANCE_TOPIC_PARTITIONS)
                 .replicas(BALANCE_TOPIC_REPLICAS)
                 .build();
@@ -104,5 +116,17 @@ public class KafkaConfig {
     KafkaTemplate<String, ZoneBalanceEvent> zoneBalanceKafkaTemplate(
             ProducerFactory<String, ZoneBalanceEvent> zoneBalanceProducerFactory) {
         return new KafkaTemplate<>(zoneBalanceProducerFactory);
+    }
+
+    @Bean
+    ProducerFactory<String, ZoneCapacityEvent> zoneCapacityProducerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> props = kafkaProperties.buildProducerProperties();
+        return new DefaultKafkaProducerFactory<>(props, new StringSerializer(), new JacksonJsonSerializer<>());
+    }
+
+    @Bean
+    KafkaTemplate<String, ZoneCapacityEvent> zoneCapacityKafkaTemplate(
+            ProducerFactory<String, ZoneCapacityEvent> zoneCapacityProducerFactory) {
+        return new KafkaTemplate<>(zoneCapacityProducerFactory);
     }
 }

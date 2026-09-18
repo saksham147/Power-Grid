@@ -11,3 +11,5 @@ export const kw = (n) =>
 
 /** Signed, since a deviation's direction (slow vs. fast) is the point. */
 export const hz = (n) => `${n > 0 ? '+' : ''}${Number(n).toFixed(3)} Hz`
+
+export const rupees = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`

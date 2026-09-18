@@ -31,8 +31,9 @@
 	</properties>
 	<!--
 	  Trimmed from the generated pom, same as Producer's: this service reads two Kafka topics,
-	  merges them, publishes one and logs to Postgres. No Redis, no HTTP client, no web tier of
-	  its own, so redis-reactive, restclient, session-data-redis and webflux are all gone.
+	  merges them, publishes one and logs to Postgres. No Redis, no HTTP client, and no session
+	  or reactive web tier, so redis-reactive, restclient, session-data-redis and webflux are all
+	  gone. web (below) stays, for the one read-only status endpoint the frontend needs.
 	-->
 	<dependencies>
 		<dependency>
@@ -44,6 +45,16 @@
 			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 		<!--
+		  WebMVC, not WebFlux: everything else in this service is blocking (JPA, the Kafka
+		  listener threads), and the one endpoint this adds, GET /api/distribution/status,
+		  touches nothing but GridStateTracker's in-memory maps, so there is no I/O on that path
+		  worth a reactive stack for.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<!--
 		  Required explicitly, as in Producer and Customer. spring-boot-starter-kafka does not
 		  pull in Jackson on its own, so without this JacksonJsonSerializer/JacksonJsonDeserializer
 		  have no tools.jackson.databind to bind against.
@@ -51,6 +62,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jackson</artifactId>
+		</dependency>
+		<!-- For @Valid/@NotBlank/@Positive on the new zone-capacity request DTOs. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
 		<dependency>
@@ -72,6 +88,15 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-kafka-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  The @WebMvcTest slice, so DistributionController can be tested without Kafka or
+		  Postgres. DistributorApplicationTests boots the full context and already needs both.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

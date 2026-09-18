@@ -48,6 +48,13 @@ distributor:
   # Whether the producer.output / customer.demand @KafkaListeners auto-start. Off in tests, so
   # loading the context does not consume real events from a real broker.
   autostart: true
+  history:
+    # Simulated, not wall-clock, days -- see DistributionRollupJob for why.
+    raw-retention-days: 15
+    # ISO-8601, not Boot's "10m" shorthand: this value is also fed straight into @Scheduled's
+    # fixedDelayString, whose Duration parsing is stricter than @ConfigurationProperties binding.
+    rollup-interval: PT10M
+    rollup-enabled: true
 
 logging:
   level:

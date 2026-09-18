@@ -52,7 +52,19 @@ public enum DemandProfile {
                     1.08, 1.10, 1.10, 1.08, 1.05, 1.08, 1.10, 1.10,
                     1.08, 1.05, 1.00, 0.98, 0.96, 0.95, 0.94, 0.93 },
             // Reduced shifts, not a shutdown.
-            0.80);
+            0.80),
+
+    /** Government and public-sector buildings: near-nothing overnight bar security/emergency
+     *  lighting, a sharp ramp at opening, a flat office-hours plateau, then a sharp drop -- closer
+     *  to {@code COMMERCIAL}'s shape than {@code RESIDENTIAL}'s, but steadier through the day and
+     *  with almost no weekend activity at all, since a government office is not a shop. */
+    GOV(
+            new double[] {
+                    0.18, 0.16, 0.15, 0.15, 0.16, 0.20, 0.30, 0.55,
+                    0.85, 1.05, 1.10, 1.10, 1.05, 1.10, 1.10, 1.08,
+                    1.00, 0.70, 0.40, 0.30, 0.25, 0.22, 0.20, 0.19 },
+            // Essential services only; almost fully closed.
+            0.20);
 
     private static final int HOURS = 24;
 

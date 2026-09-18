@@ -1,9 +1,11 @@
 import { ApiError } from './api'
 
-async function request(path) {
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+async function request(path, options) {
   let res
   try {
-    res = await fetch(path)
+    res = await fetch(path, options)
   } catch {
     throw new ApiError('Cannot reach the Customer service.', { status: 0 })
   }
@@ -22,7 +24,21 @@ async function request(path) {
     })
   }
 
-  return res.json()
+  return res.status === 204 ? null : res.json()
 }
 
 export const getDemand = () => request('/customer-api/demand')
+
+export const listZones = () => request('/customer-api/zones')
+export const createZone = (body) =>
+  request('/customer-api/zones', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) })
+export const upgradeZone = (zoneId, body) =>
+  request(`/customer-api/zones/${zoneId}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) })
+export const deleteZone = (zoneId) => request(`/customer-api/zones/${zoneId}`, { method: 'DELETE' })
+
+export const listUnits = () => request('/customer-api/units')
+export const createUnit = (body) =>
+  request('/customer-api/units', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) })
+export const upgradeUnit = (unitId, body) =>
+  request(`/customer-api/units/${unitId}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) })
+export const deleteUnit = (unitId) => request(`/customer-api/units/${unitId}`, { method: 'DELETE' })

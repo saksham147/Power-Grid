@@ -14,26 +14,29 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import Customer.application.ConsumerUnitRepository;
 import Customer.application.CurrentDemand;
 import Customer.application.DemandStateStore;
+import Customer.application.PeakTracker;
 import Customer.application.ZoneRepository;
+import Customer.domain.ConsumerUnit;
 import Customer.domain.DemandProfile;
 import Customer.domain.SimulationClock;
 import Customer.domain.Zone;
 import reactor.core.publisher.Mono;
 
 /**
- * Contract of {@code GET /api/demand}: a slice with the store and the zone repository mocked, so
- * this runs with no Redis and no Kafka. {@code CustomerApplicationTests} boots the full context
- * and already needs both.
+ * Contract of {@code GET /api/demand}: a slice with the store, zone repository and unit
+ * repository mocked, so this runs with no Redis and no Kafka. {@code CustomerApplicationTests}
+ * boots the full context and already needs both.
  */
 @WebFluxTest(DemandController.class)
 class DemandControllerTests {
 
-    private static final Zone NORTH = new Zone(
-            "Z-NORTH", "North Residential", 250_000, DemandProfile.RESIDENTIAL, 1.1, 0.35, 0.06);
-    private static final Zone EAST = new Zone(
-            "Z-EAST", "East Industrial", 800, DemandProfile.INDUSTRIAL, 240.0, 0.12, 0.03);
+    private static final Zone NORTH = new Zone("Z-NORTH", "North Residential");
+    private static final Zone EAST = new Zone("Z-EAST", "East Industrial");
+    private static final ConsumerUnit NORTH_UNIT = new ConsumerUnit(
+            "U-NORTH-A", "Z-NORTH", "North Homes A", DemandProfile.RESIDENTIAL, 800);
 
     @TestConfiguration
     static class Config {
@@ -52,10 +55,17 @@ class DemandControllerTests {
     @MockitoBean
     private ZoneRepository zones;
 
+    @MockitoBean
+    private ConsumerUnitRepository units;
+
+    @MockitoBean
+    private PeakTracker peaks;
+
     @Test
-    void reportsEveryConfiguredZoneJoinedAgainstItsLatestDemand() {
+    void reportsEveryConfiguredZoneJoinedAgainstItsLatestDemandAndUnitCount() {
         Instant at = Instant.parse("2026-09-13T12:00:00Z");
         given(zones.findAll()).willReturn(List.of(NORTH, EAST));
+        given(units.findAll()).willReturn(List.of(NORTH_UNIT));
         given(store.current()).willReturn(Mono.just(
                 new CurrentDemand(144, at, 500.0, Map.of("Z-NORTH", 300.0, "Z-EAST", 200.0))));
 
@@ -69,10 +79,10 @@ class DemandControllerTests {
                 .jsonPath("$.totalKw").isEqualTo(500.0)
                 .jsonPath("$.zones[0].zoneId").isEqualTo("Z-NORTH")
                 .jsonPath("$.zones[0].name").isEqualTo("North Residential")
-                .jsonPath("$.zones[0].customers").isEqualTo(250_000)
-                .jsonPath("$.zones[0].profile").isEqualTo("RESIDENTIAL")
+                .jsonPath("$.zones[0].unitCount").isEqualTo(1)
                 .jsonPath("$.zones[0].demandKw").isEqualTo(300.0)
                 .jsonPath("$.zones[1].zoneId").isEqualTo("Z-EAST")
+                .jsonPath("$.zones[1].unitCount").isEqualTo(0)
                 .jsonPath("$.zones[1].demandKw").isEqualTo(200.0);
     }
 
@@ -80,6 +90,7 @@ class DemandControllerTests {
     @Test
     void beforeTheFirstTickEveryZoneReportsZero() {
         given(zones.findAll()).willReturn(List.of(NORTH, EAST));
+        given(units.findAll()).willReturn(List.of());
         given(store.current()).willReturn(Mono.empty());
 
         client.get().uri("/api/demand").exchange()
@@ -98,6 +109,7 @@ class DemandControllerTests {
     @Test
     void aZoneMissingFromTheStoreDefaultsToZero() {
         given(zones.findAll()).willReturn(List.of(NORTH, EAST));
+        given(units.findAll()).willReturn(List.of());
         given(store.current()).willReturn(Mono.just(
                 new CurrentDemand(1, Instant.parse("2026-09-13T00:00:05Z"), 300.0, Map.of("Z-NORTH", 300.0))));
 

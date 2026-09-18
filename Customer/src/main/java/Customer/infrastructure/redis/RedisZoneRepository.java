@@ -83,8 +83,7 @@ public class RedisZoneRepository implements ZoneRepository {
             }
 
             List<Zone> defaults = seedProperties.zones().stream()
-                    .map(z -> new Zone(z.id(), z.name(), z.customers(), z.profile(),
-                            z.baseKwPerCustomer(), z.customerVariability(), z.zoneVariability()))
+                    .map(z -> new Zone(z.id(), z.name()))
                     .toList();
 
             if (defaults.isEmpty()) {

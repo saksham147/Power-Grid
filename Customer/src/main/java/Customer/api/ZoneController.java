@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import Customer.application.ConsumerUnitRepository;
 import Customer.application.ZoneRepository;
 import Customer.domain.Zone;
 import jakarta.validation.Valid;
@@ -34,9 +35,11 @@ import reactor.core.scheduler.Schedulers;
 public class ZoneController {
 
     private final ZoneRepository zones;
+    private final ConsumerUnitRepository units;
 
-    public ZoneController(ZoneRepository zones) {
+    public ZoneController(ZoneRepository zones, ConsumerUnitRepository units) {
         this.zones = zones;
+        this.units = units;
     }
 
     @GetMapping
@@ -55,7 +58,7 @@ public class ZoneController {
     }
 
     /**
-     * Re-rates a zone: new population, profile and demand shape, applied together.
+     * Renames a zone.
      *
      * <p>
      * An upsert, not an update-or-404: {@link ZoneRepository#save} already "adds a zone, or
@@ -70,9 +73,16 @@ public class ZoneController {
         return zones.save(zone).thenReturn(ZoneResponse.from(zone));
     }
 
+    /**
+     * Removes a zone and, since a unit without a zone is meaningless, every unit that belonged to
+     * it. Units first: if the process dies between the two calls, an orphaned unit is recoverable
+     * (delete it, or its zone comes back), whereas a zone deleted first and a unit left behind
+     * would silently keep contributing demand to a zone that no longer exists in the API's own
+     * listing.
+     */
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> delete(@PathVariable String id) {
-        return zones.delete(id);
+        return units.deleteByZoneId(id).then(zones.delete(id));
     }
 }

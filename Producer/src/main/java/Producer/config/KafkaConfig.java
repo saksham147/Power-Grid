@@ -3,6 +3,7 @@ package Producer.config;
 import java.util.Map;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
@@ -20,8 +21,12 @@ import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
 import Producer.event.GridTickEvent;
+import Producer.event.PlantRosterEvent;
 import Producer.event.ProducerOutputEvent;
+import Producer.event.StorageOutputEvent;
+import Producer.kafka.PlantRosterPublisher;
 import Producer.kafka.ProducerOutputPublisher;
+import Producer.kafka.StorageOutputPublisher;
 
 /**
  * Kafka wiring.
@@ -50,6 +55,27 @@ public class KafkaConfig {
     NewTopic producerOutputTopic() {
         return TopicBuilder.name(ProducerOutputPublisher.TOPIC)
                 .partitions(OUTPUT_TOPIC_PARTITIONS)
+                .replicas(OUTPUT_TOPIC_REPLICAS)
+                .build();
+    }
+
+    /**
+     * Roster changes are rare (admin-driven, not per-tick) compared to output events, so a single
+     * partition is enough -- there is no parallelism to gain and it keeps every plant's roster
+     * history in one strictly-ordered log.
+     */
+    @Bean
+    NewTopic plantRosterTopic() {
+        return TopicBuilder.name(PlantRosterPublisher.TOPIC)
+                .partitions(1)
+                .replicas(OUTPUT_TOPIC_REPLICAS)
+                .build();
+    }
+
+    @Bean
+    NewTopic storageOutputTopic() {
+        return TopicBuilder.name(StorageOutputPublisher.TOPIC)
+                .partitions(1)
                 .replicas(OUTPUT_TOPIC_REPLICAS)
                 .build();
     }
@@ -98,6 +124,29 @@ public class KafkaConfig {
         return factory;
     }
 
+    /**
+     * A second, independent consumer group on {@code grid.tick} for {@code
+     * Producer.storage.StorageCycleService}. Sharing {@code kafkaListenerContainerFactory}'s group
+     * would mean the two listeners compete for the same partition rather than each seeing every
+     * tick -- the same reasoning Billing's zone-capacity mirror gets its own group for.
+     */
+    @Bean
+    ConsumerFactory<String, GridTickEvent> storageGridTickConsumerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> props = kafkaProperties.buildConsumerProperties();
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "producer-service-storage");
+        var delegate = new JacksonJsonDeserializer<>(GridTickEvent.class, false);
+        var valueDeserializer = new ErrorHandlingDeserializer<>(delegate);
+        return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), valueDeserializer);
+    }
+
+    @Bean
+    ConcurrentKafkaListenerContainerFactory<String, GridTickEvent> storageGridTickListenerContainerFactory(
+            ConsumerFactory<String, GridTickEvent> storageGridTickConsumerFactory) {
+        var factory = new ConcurrentKafkaListenerContainerFactory<String, GridTickEvent>();
+        factory.setConsumerFactory(storageGridTickConsumerFactory);
+        return factory;
+    }
+
     @Bean
     ProducerFactory<String, ProducerOutputEvent> producerOutputProducerFactory(KafkaProperties kafkaProperties) {
         Map<String, Object> props = kafkaProperties.buildProducerProperties();
@@ -108,5 +157,29 @@ public class KafkaConfig {
     KafkaTemplate<String, ProducerOutputEvent> producerOutputKafkaTemplate(
             ProducerFactory<String, ProducerOutputEvent> producerOutputProducerFactory) {
         return new KafkaTemplate<>(producerOutputProducerFactory);
+    }
+
+    @Bean
+    ProducerFactory<String, PlantRosterEvent> plantRosterProducerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> props = kafkaProperties.buildProducerProperties();
+        return new DefaultKafkaProducerFactory<>(props, new StringSerializer(), new JacksonJsonSerializer<>());
+    }
+
+    @Bean
+    KafkaTemplate<String, PlantRosterEvent> plantRosterKafkaTemplate(
+            ProducerFactory<String, PlantRosterEvent> plantRosterProducerFactory) {
+        return new KafkaTemplate<>(plantRosterProducerFactory);
+    }
+
+    @Bean
+    ProducerFactory<String, StorageOutputEvent> storageOutputProducerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> props = kafkaProperties.buildProducerProperties();
+        return new DefaultKafkaProducerFactory<>(props, new StringSerializer(), new JacksonJsonSerializer<>());
+    }
+
+    @Bean
+    KafkaTemplate<String, StorageOutputEvent> storageOutputKafkaTemplate(
+            ProducerFactory<String, StorageOutputEvent> storageOutputProducerFactory) {
+        return new KafkaTemplate<>(storageOutputProducerFactory);
     }
 }

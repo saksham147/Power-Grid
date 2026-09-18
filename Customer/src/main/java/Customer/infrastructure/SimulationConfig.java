@@ -4,9 +4,12 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import Customer.application.ConsumerUnitRepository;
 import Customer.application.DemandPublisher;
 import Customer.application.DemandSimulator;
 import Customer.application.DemandStateStore;
+import Customer.application.PeakTracker;
+import Customer.application.PeakTrackingStateStore;
 import Customer.application.ZoneRepository;
 import Customer.config.CustomerProperties;
 import Customer.domain.SimulationClock;
@@ -35,9 +38,14 @@ public class SimulationConfig {
 
     @Bean
     DemandSimulator demandSimulator(ZoneRepository zones,
+            ConsumerUnitRepository units,
             SimulationClock clock,
             DemandPublisher publisher,
-            DemandStateStore stateStore) {
-        return new DemandSimulator(zones, clock, publisher, stateStore);
+            DemandStateStore stateStore,
+            PeakTracker peaks) {
+        // Wrapped rather than passed to DemandSimulator directly -- see PeakTrackingStateStore's
+        // own javadoc for why peak-tracking stays an infrastructure concern.
+        return new DemandSimulator(zones, units, clock, publisher,
+                new PeakTrackingStateStore(stateStore, peaks, clock));
     }
 }

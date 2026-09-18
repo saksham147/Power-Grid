@@ -62,6 +62,7 @@ public class GridClockRunner {
     private volatile ScheduledFuture<?> loop;
     private volatile double frequencyDeviation;
     private volatile boolean autoControlEnabled;
+    private volatile boolean loadExceeded;
 
     public GridClockRunner(GridTickPublisher publisher, RedisClockStore clockStore,
             @Qualifier("clockTaskScheduler") TaskScheduler scheduler, GridStateTracker state,
@@ -140,7 +141,8 @@ public class GridClockRunner {
                 frequencyDeviation,
                 autoControlEnabled,
                 state.totalSupplyKw(),
-                state.totalDemandKw());
+                state.totalDemandKw(),
+                loadExceeded);
     }
 
     /** Visible for tests, which drive a tick directly rather than waiting on the schedule. */
@@ -149,8 +151,12 @@ public class GridClockRunner {
         try {
             long number = tickCounter.incrementAndGet();
 
+            double supplyKw = state.totalSupplyKw();
+            double demandKw = state.totalDemandKw();
+            loadExceeded = demandKw > supplyKw;
+
             if (autoControlEnabled) {
-                frequencyDeviation = frequencyController.compute(state.totalSupplyKw(), state.totalDemandKw());
+                frequencyDeviation = frequencyController.compute(supplyKw, demandKw);
             }
             double deviation = frequencyDeviation;
             Instant now = Instant.now();

@@ -21,7 +21,7 @@ import java.time.Instant;
  * @param zoneName      human label, so a consumer need not resolve zones itself
  * @param tick          simulation tick this covers
  * @param simulatedTime simulated time of day, {@code "HH:mm"}
- * @param customers     population the figure aggregates
+ * @param units         how many houses, factories and commercial buildings the figure sums over
  * @param demandKw      total demand for the zone, in kW
  * @param timestamp     wall-clock instant of the tick, shared across its records
  */
@@ -30,7 +30,7 @@ public record ZoneDemandEvent(
         String zoneName,
         long tick,
         String simulatedTime,
-        long customers,
+        long units,
         double demandKw,
         Instant timestamp) {
 }

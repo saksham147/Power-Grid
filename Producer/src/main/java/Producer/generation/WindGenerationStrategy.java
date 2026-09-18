@@ -65,7 +65,12 @@ public class WindGenerationStrategy implements GenerationStrategy {
                 + GUST_WEIGHT * gust
                 + NOISE_WEIGHT * noise(plant.getId(), tickNumber);
 
+        double seasonFactor = Season.of(tickNumber).windFactor();
+
+        // Re-clamped after the season scaling (not before): a winter boost can push the raw
+        // weighted sum past MAX_CAPACITY_FACTOR, and turbines still cap out at the same physical
+        // ceiling in winter as any other season.
         return plant.getCapacityMw()
-                * Math.clamp(capacityFactor, MIN_CAPACITY_FACTOR, MAX_CAPACITY_FACTOR);
+                * Math.clamp(capacityFactor * seasonFactor, MIN_CAPACITY_FACTOR, MAX_CAPACITY_FACTOR);
     }
 }

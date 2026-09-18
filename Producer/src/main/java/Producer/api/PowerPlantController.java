@@ -1,6 +1,7 @@
 package Producer.api;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
@@ -22,8 +23,13 @@ import Producer.api.dto.CreatePlantRequest;
 import Producer.api.dto.PowerPlantResponse;
 import Producer.api.dto.UpdatePlantActiveRequest;
 import Producer.api.dto.UpgradePlantRequest;
+import Producer.event.PlantRosterEvent;
+import Producer.generation.ForecastPoint;
+import Producer.generation.ForecastService;
+import Producer.kafka.PlantRosterPublisher;
 import Producer.model.PowerPlant;
 import Producer.model.PowerPlantRepository;
+import Producer.simulation.SimulationRunner;
 import jakarta.validation.Valid;
 
 /**
@@ -41,9 +47,21 @@ import jakarta.validation.Valid;
 public class PowerPlantController {
 
     private final PowerPlantRepository repository;
+    private final PlantRosterPublisher rosterPublisher;
+    private final ForecastService forecastService;
+    private final SimulationRunner simulationRunner;
 
-    public PowerPlantController(PowerPlantRepository repository) {
+    public PowerPlantController(PowerPlantRepository repository, PlantRosterPublisher rosterPublisher,
+            ForecastService forecastService, SimulationRunner simulationRunner) {
         this.repository = repository;
+        this.rosterPublisher = rosterPublisher;
+        this.forecastService = forecastService;
+        this.simulationRunner = simulationRunner;
+    }
+
+    private void publishRoster(PowerPlant plant, boolean removed) {
+        rosterPublisher.publish(new PlantRosterEvent(
+                plant.getId(), plant.getType(), plant.getCapacityMw(), plant.isActive(), removed, Instant.now()));
     }
 
     /**
@@ -67,6 +85,7 @@ public class PowerPlantController {
     @PostMapping
     public ResponseEntity<PowerPlantResponse> create(@Valid @RequestBody CreatePlantRequest request) {
         PowerPlant saved = repository.save(request.toEntity());
+        publishRoster(saved, false);
 
         return ResponseEntity.created(URI.create("/api/plants/" + saved.getId()))
                 .body(PowerPlantResponse.from(saved));
@@ -88,6 +107,7 @@ public class PowerPlantController {
         // commit, so
         // there is no save call here, matching how GenerationService writes back output.
         plant.setActive(request.active());
+        publishRoster(plant, false);
 
         return PowerPlantResponse.from(plant);
     }
@@ -109,6 +129,7 @@ public class PowerPlantController {
                 .orElseThrow(() -> new PlantNotFoundException(id));
 
         plant.upgrade(request.name(), request.capacityMw(), request.minOutputMw(), request.baseOutputMw());
+        publishRoster(plant, false);
 
         return PowerPlantResponse.from(plant);
     }
@@ -125,13 +146,27 @@ public class PowerPlantController {
      */
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void delete(@PathVariable Long id) {
-        // existsById first: deleteById is silent on a missing row, which would report a
-        // successful deletion of a plant that never existed.
-        if (!repository.existsById(id)) {
-            throw new PlantNotFoundException(id);
-        }
+        // Loaded rather than a bare existsById check: the roster-removed event needs the plant's
+        // last known type/capacity, and deleteById is silent on a missing row regardless.
+        PowerPlant plant = repository.findById(id).orElseThrow(() -> new PlantNotFoundException(id));
         repository.deleteById(id);
+        publishRoster(plant, true);
+    }
+
+    /**
+     * Previews a SOLAR/WIND plant's output for the next few ticks -- see {@link ForecastService}
+     * for why THERMAL is excluded (400) and why this needs no simulation state beyond the plant
+     * itself.
+     *
+     * @param ticks how many ticks ahead to forecast, starting at the next tick after the one
+     *              currently displayed on {@code GET /api/simulation/status}
+     */
+    @GetMapping("/{id}/forecast")
+    public List<ForecastPoint> forecast(@PathVariable Long id, @RequestParam(defaultValue = "12") int ticks) {
+        PowerPlant plant = repository.findById(id).orElseThrow(() -> new PlantNotFoundException(id));
+        return forecastService.forecast(plant, simulationRunner.currentTick() + 1, ticks);
     }
 
 }

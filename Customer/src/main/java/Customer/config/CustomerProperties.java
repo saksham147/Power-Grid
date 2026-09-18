@@ -18,7 +18,8 @@ import Customer.domain.DemandProfile;
 @ConfigurationProperties("customer")
 public record CustomerProperties(
         @DefaultValue Simulation simulation,
-        @DefaultValue List<ZoneConfig> zones) {
+        @DefaultValue List<ZoneConfig> zones,
+        @DefaultValue List<UnitConfig> units) {
 
     /**
      * @param simulatedMinutesPerTick       simulated time one tick covers; must divide
@@ -31,18 +32,14 @@ public record CustomerProperties(
             @DefaultValue("1") int realSecondsPerSimulatedMinute) {
     }
 
+    /** A zone as configured: just an id and a name now that a zone carries no demand itself. */
+    public record ZoneConfig(String id, String name) {
+    }
+
     /**
-     * A zone as configured. Maps onto the domain's {@code Zone}, which is where the
-     * meaning of
-     * each field is documented -- particularly why there are two variabilities.
+     * A unit as configured. Maps onto the domain's {@code ConsumerUnit}, which is where the meaning
+     * of each field is documented.
      */
-    public record ZoneConfig(
-            String id,
-            String name,
-            long customers,
-            DemandProfile profile,
-            double baseKwPerCustomer,
-            @DefaultValue("0.30") double customerVariability,
-            @DefaultValue("0.05") double zoneVariability) {
+    public record UnitConfig(String unitId, String zoneId, String name, DemandProfile type, double capacityKw) {
     }
 }

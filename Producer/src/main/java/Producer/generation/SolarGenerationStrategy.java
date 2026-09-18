@@ -64,6 +64,12 @@ public class SolarGenerationStrategy implements GenerationStrategy {
         double cloudFactor = MIN_CLOUD_FACTOR
                 + (1.0 - MIN_CLOUD_FACTOR) * noise(plant.getId(), tick.tickNumber());
 
-        return plant.getCapacityMw() * clearSky * cloudFactor;
+        double seasonFactor = Season.of(tick.tickNumber()).solarFactor();
+
+        // Capped at 1.0: a summer boost (seasonFactor > 1) narrows the gap to nameplate on a
+        // clear day, it does not let the panel exceed its own rated capacity.
+        double capacityFactor = Math.min(1.0, clearSky * cloudFactor * seasonFactor);
+
+        return plant.getCapacityMw() * capacityFactor;
     }
 }

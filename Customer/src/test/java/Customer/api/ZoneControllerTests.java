@@ -12,26 +12,28 @@ import org.springframework.boot.webflux.test.autoconfigure.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import Customer.application.ConsumerUnitRepository;
 import Customer.application.ZoneRepository;
-import Customer.domain.DemandProfile;
 import Customer.domain.Zone;
 import reactor.core.publisher.Mono;
 
 /**
- * Contract of the zone management endpoints: a slice with the repository mocked, so this runs
+ * Contract of the zone management endpoints: a slice with the repositories mocked, so this runs
  * with no Redis.
  */
 @WebFluxTest(ZoneController.class)
 class ZoneControllerTests {
 
-    private static final Zone NORTH = new Zone(
-            "Z-NORTH", "North Residential", 250_000, DemandProfile.RESIDENTIAL, 1.1, 0.35, 0.06);
+    private static final Zone NORTH = new Zone("Z-NORTH", "North Residential");
 
     @Autowired
     private WebTestClient client;
 
     @MockitoBean
     private ZoneRepository zones;
+
+    @MockitoBean
+    private ConsumerUnitRepository units;
 
     @Test
     void listsEveryConfiguredZone() {
@@ -41,10 +43,7 @@ class ZoneControllerTests {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$[0].zoneId").isEqualTo("Z-NORTH")
-                .jsonPath("$[0].name").isEqualTo("North Residential")
-                .jsonPath("$[0].customers").isEqualTo(250_000)
-                .jsonPath("$[0].profile").isEqualTo("RESIDENTIAL")
-                .jsonPath("$[0].baseKwPerCustomer").isEqualTo(1.1);
+                .jsonPath("$[0].name").isEqualTo("North Residential");
     }
 
     @Test
@@ -54,18 +53,15 @@ class ZoneControllerTests {
         client.post().uri("/api/zones")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"zoneId":"Z-SOUTH","name":"South Residential","customers":1000,
-                         "profile":"RESIDENTIAL","baseKwPerCustomer":1.2,
-                         "customerVariability":0.3,"zoneVariability":0.05}""")
+                        {"zoneId":"Z-SOUTH","name":"South Residential"}""")
                 .exchange()
                 .expectStatus().isCreated()
                 .expectHeader().valueEquals("Location", "/api/zones/Z-SOUTH")
                 .expectBody()
                 .jsonPath("$.zoneId").isEqualTo("Z-SOUTH")
-                .jsonPath("$.customers").isEqualTo(1000);
+                .jsonPath("$.name").isEqualTo("South Residential");
 
-        verify(zones).save(new Zone("Z-SOUTH", "South Residential", 1000, DemandProfile.RESIDENTIAL,
-                1.2, 0.3, 0.05));
+        verify(zones).save(new Zone("Z-SOUTH", "South Residential"));
     }
 
     /** Present, well-typed fields that fail the business rule -- not a malformed body. */
@@ -74,9 +70,7 @@ class ZoneControllerTests {
         client.post().uri("/api/zones")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"zoneId":"","name":"","customers":0,
-                         "profile":"RESIDENTIAL","baseKwPerCustomer":0,
-                         "customerVariability":0,"zoneVariability":0}""")
+                        {"zoneId":"","name":""}""")
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
@@ -92,27 +86,25 @@ class ZoneControllerTests {
         client.put().uri("/api/zones/Z-NORTH")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"name":"North Residential (expanded)","customers":300000,
-                         "profile":"RESIDENTIAL","baseKwPerCustomer":1.15,
-                         "customerVariability":0.35,"zoneVariability":0.06}""")
+                        {"name":"North Residential (renamed)"}""")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.zoneId").isEqualTo("Z-NORTH")
-                .jsonPath("$.name").isEqualTo("North Residential (expanded)")
-                .jsonPath("$.customers").isEqualTo(300000);
+                .jsonPath("$.name").isEqualTo("North Residential (renamed)");
 
-        verify(zones).save(new Zone("Z-NORTH", "North Residential (expanded)", 300000,
-                DemandProfile.RESIDENTIAL, 1.15, 0.35, 0.06));
+        verify(zones).save(new Zone("Z-NORTH", "North Residential (renamed)"));
     }
 
     @Test
-    void deletingAZoneReturns204() {
+    void deletingAZoneReturns204AndCascadesToItsUnits() {
+        given(units.deleteByZoneId("Z-NORTH")).willReturn(Mono.empty());
         given(zones.delete("Z-NORTH")).willReturn(Mono.empty());
 
         client.delete().uri("/api/zones/Z-NORTH").exchange()
                 .expectStatus().isNoContent();
 
+        verify(units).deleteByZoneId("Z-NORTH");
         verify(zones).delete("Z-NORTH");
     }
 }

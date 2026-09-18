@@ -56,4 +56,20 @@ public class GridStateTracker {
     public double totalDemandKw() {
         return demandKwByZone.values().stream().mapToDouble(Double::doubleValue).sum();
     }
+
+    /** One zone's latest known demand, in kW -- 0 if it has never reported. For the zone-capacity
+     *  view, to show current draw against an assigned capacity. */
+    public double demandKwFor(String zoneId) {
+        return demandKwByZone.getOrDefault(zoneId, 0.0);
+    }
+
+    /** How many distinct plants have reported at least once. For status/observability only. */
+    public int trackedPlantCount() {
+        return outputMwByPlant.size();
+    }
+
+    /** How many distinct zones have reported at least once. For status/observability only. */
+    public int trackedZoneCount() {
+        return demandKwByZone.size();
+    }
 }

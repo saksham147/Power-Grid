@@ -25,6 +25,10 @@ public class GridStateTracker {
 
     private final ConcurrentHashMap<Long, Double> outputMwByPlant = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Double> demandKwByZone = new ConcurrentHashMap<>();
+    /** Signed: positive while a unit discharges (acts like supply), negative while it charges
+     *  (acts like demand) -- folded into {@link #totalSupplyKw()} as a net addition rather than
+     *  tracked as separate supply/demand, since a single unit can be either from tick to tick. */
+    private final ConcurrentHashMap<Long, Double> netKwByStorageUnit = new ConcurrentHashMap<>();
 
     public void recordSupply(long plantId, double outputMw) {
         outputMwByPlant.put(plantId, outputMw);
@@ -34,9 +38,16 @@ public class GridStateTracker {
         demandKwByZone.put(zoneId, demandKw);
     }
 
-    /** Sum of every plant's latest known output, converted to kW. */
+    public void recordStorageNet(long unitId, double netKw) {
+        netKwByStorageUnit.put(unitId, netKw);
+    }
+
+    /** Sum of every plant's latest known output (converted to kW) plus every storage unit's net
+     *  contribution -- a discharging unit adds to this, a charging one subtracts from it. */
     public double totalSupplyKw() {
-        return outputMwByPlant.values().stream().mapToDouble(Double::doubleValue).sum() * KW_PER_MW;
+        double plantSupplyKw = outputMwByPlant.values().stream().mapToDouble(Double::doubleValue).sum() * KW_PER_MW;
+        double storageNetKw = netKwByStorageUnit.values().stream().mapToDouble(Double::doubleValue).sum();
+        return plantSupplyKw + storageNetKw;
     }
 
     /** Sum of every zone's latest known demand, already in kW. */

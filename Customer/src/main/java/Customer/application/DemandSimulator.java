@@ -4,34 +4,38 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import Customer.domain.ConsumerUnit;
 import Customer.domain.DemandModel;
+import Customer.domain.Season;
 import Customer.domain.SimulationClock;
 import Customer.domain.Zone;
 import Customer.domain.ZoneDemand;
 
 /**
- * The use case: given a tick number, aggregate demand per zone and hand the result to the output
- * ports.
+ * The use case: given a tick number, aggregate every zone's units into that zone's demand and
+ * hand the result to the output ports.
  *
  * <p>
  * Deliberately free of framework annotations. It is constructed by an infrastructure configuration,
- * which is what keeps this class testable with three fakes and no broker, no cache and no
- * container.
+ * which is what keeps this class testable with fakes and no broker, no cache and no container.
  *
  * <p>
  * It knows nothing about Kafka, Redis, or Grid -- only that the tick number comes from somewhere
- * outside it, zones come from a repository read fresh every time, and demand goes somewhere to be
- * published and somewhere to be recorded.
+ * outside it, zones and units come from repositories read fresh every time, and demand goes
+ * somewhere to be published and somewhere to be recorded.
  */
 public class DemandSimulator {
 
     private static final Logger log = LoggerFactory.getLogger(DemandSimulator.class);
 
     private final ZoneRepository zones;
+    private final ConsumerUnitRepository units;
     private final SimulationClock clock;
     private final DemandPublisher publisher;
     private final DemandStateStore stateStore;
@@ -40,10 +44,12 @@ public class DemandSimulator {
     private volatile long lastTick;
 
     public DemandSimulator(ZoneRepository zones,
+            ConsumerUnitRepository units,
             SimulationClock clock,
             DemandPublisher publisher,
             DemandStateStore stateStore) {
         this.zones = zones;
+        this.units = units;
         this.clock = clock;
         this.publisher = publisher;
         this.stateStore = stateStore;
@@ -53,8 +59,8 @@ public class DemandSimulator {
      * Runs one tick, for the tick number Grid issued.
      *
      * <p>
-     * Cost is proportional to the number of <em>zones</em>, not customers: each zone is one
-     * closed-form evaluation regardless of how many customers it represents.
+     * Cost is proportional to the number of <em>units</em>, not to any population they represent:
+     * each unit is one closed-form evaluation, summed per zone.
      *
      * @return what this tick produced
      */
@@ -66,13 +72,17 @@ public class DemandSimulator {
 
         LocalTime time = clock.timeOfDay(tick);
         DayOfWeek day = clock.dayOfWeek(tick);
+        Season season = Season.of(clock.dayNumber(tick));
+
+        Map<String, List<ConsumerUnit>> unitsByZone = units.findAll().stream()
+                .collect(Collectors.groupingBy(ConsumerUnit::zoneId));
 
         List<ZoneDemand> demands = currentZones.stream()
-                .map(zone -> new ZoneDemand(
-                        zone.zoneId(),
-                        zone.name(),
-                        zone.customers(),
-                        DemandModel.demandKw(zone, time, day, tick)))
+                .map(zone -> {
+                    List<ConsumerUnit> zoneUnits = unitsByZone.getOrDefault(zone.zoneId(), List.of());
+                    double kw = zoneUnits.stream().mapToDouble(u -> DemandModel.demandKw(u, time, day, season)).sum();
+                    return new ZoneDemand(zone.zoneId(), zone.name(), zoneUnits.size(), kw);
+                })
                 .toList();
 
         DemandSnapshot snapshot = DemandSnapshot.of(tick, clock.formatTimeOfDay(tick), Instant.now(), demands);

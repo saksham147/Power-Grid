@@ -49,6 +49,16 @@ class DemandProfileTests {
         assertThat(max / min).isLessThan(1.3);
     }
 
+    @Test
+    void govTracksOfficeHoursAndIsAlmostClosedAtWeekends() {
+        double working = DemandProfile.GOV.factorAt(LocalTime.of(11, 0), WEEKDAY);
+        double overnight = DemandProfile.GOV.factorAt(LocalTime.of(3, 0), WEEKDAY);
+
+        assertThat(working).isGreaterThan(overnight * 5);
+        // Steadier at weekends than a shop (COMMERCIAL), but still almost fully closed.
+        assertThat(DemandProfile.GOV.factorAt(LocalTime.of(11, 0), WEEKEND)).isLessThan(working / 4);
+    }
+
     @ParameterizedTest
     @EnumSource(DemandProfile.class)
     void everyFactorIsPositiveAtEveryMinuteOfTheWeek(DemandProfile profile) {

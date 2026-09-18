@@ -92,7 +92,7 @@ public class KafkaDemandPublisher implements DemandPublisher {
                     zone.name(),
                     snapshot.tick(),
                     snapshot.simulatedTime(),
-                    zone.customers(),
+                    zone.unitCount(),
                     zone.demandKw(),
                     snapshot.at());
 

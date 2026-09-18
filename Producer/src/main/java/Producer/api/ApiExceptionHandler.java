@@ -33,6 +33,11 @@ public class ApiExceptionHandler {
         return respond(HttpStatus.NOT_FOUND, e.getMessage());
     }
 
+    @ExceptionHandler(StorageNotFoundException.class)
+    public ResponseEntity<ApiError> handleStorageNotFound(StorageNotFoundException e) {
+        return respond(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
     /**
      * 409 rather than 400: starting an already-running simulation is not a
      * malformed request, it is

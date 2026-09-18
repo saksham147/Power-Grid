@@ -21,6 +21,7 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
 import Grid.event.GridTickEvent;
 import Grid.event.ProducerOutputEvent;
+import Grid.event.StorageOutputEvent;
 import Grid.event.ZoneBalanceEvent;
 import Grid.kafka.GridTickPublisher;
 
@@ -107,6 +108,22 @@ public class KafkaConfig {
             ConsumerFactory<String, ZoneBalanceEvent> zoneBalanceConsumerFactory) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, ZoneBalanceEvent>();
         factory.setConsumerFactory(zoneBalanceConsumerFactory);
+        return factory;
+    }
+
+    @Bean
+    ConsumerFactory<String, StorageOutputEvent> storageOutputConsumerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> props = kafkaProperties.buildConsumerProperties();
+        var delegate = new JacksonJsonDeserializer<>(StorageOutputEvent.class, false);
+        var valueDeserializer = new ErrorHandlingDeserializer<>(delegate);
+        return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), valueDeserializer);
+    }
+
+    @Bean
+    ConcurrentKafkaListenerContainerFactory<String, StorageOutputEvent> storageOutputListenerContainerFactory(
+            ConsumerFactory<String, StorageOutputEvent> storageOutputConsumerFactory) {
+        var factory = new ConcurrentKafkaListenerContainerFactory<String, StorageOutputEvent>();
+        factory.setConsumerFactory(storageOutputConsumerFactory);
         return factory;
     }
 }

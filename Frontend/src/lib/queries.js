@@ -5,6 +5,7 @@ export const keys = {
   status: ['simulation', 'status'],
   plants: ['plants'],
   history: (id) => ['plants', id, 'history'],
+  forecast: (id) => ['plants', id, 'forecast'],
 }
 
 export function useStatus() {
@@ -35,6 +36,17 @@ export function usePlantHistory(id, enabled) {
     queryFn: () => api.getPlantHistory(id, { limit: 100 }),
     enabled,
     // New rows land once a tick; matches the fleet list's own cadence.
+    refetchInterval: 5000,
+    retry: false,
+  })
+}
+
+/** Fetched only while a plant's forecast panel is open, same gating as {@link usePlantHistory}. */
+export function usePlantForecast(id, enabled) {
+  return useQuery({
+    queryKey: keys.forecast(id),
+    queryFn: () => api.getPlantForecast(id, { ticks: 12 }),
+    enabled,
     refetchInterval: 5000,
     retry: false,
   })

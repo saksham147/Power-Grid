@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
+import Customer.domain.ConsumerUnit;
+import Customer.domain.DemandModel;
 import Customer.domain.DemandProfile;
 import Customer.domain.SimulationClock;
 import Customer.domain.Zone;
@@ -18,7 +20,7 @@ import Customer.domain.ZoneDemand;
  * The use case, driven against fakes.
  *
  * <p>
- * No Spring context, no broker, no Redis: {@code DemandSimulator} depends only on three
+ * No Spring context, no broker, no Redis: {@code DemandSimulator} depends only on four
  * interfaces, so a lambda is a sufficient adapter for each.
  */
 class DemandSimulatorTests {
@@ -26,9 +28,14 @@ class DemandSimulatorTests {
     private static final SimulationClock CLOCK = new SimulationClock(5, 1);
 
     private static final List<Zone> THREE_ZONES = List.of(
-            new Zone("Z-N", "North", 250_000, DemandProfile.RESIDENTIAL, 1.1, 0.35, 0.06),
-            new Zone("Z-C", "Central", 40_000, DemandProfile.COMMERCIAL, 7.5, 0.25, 0.05),
-            new Zone("Z-E", "East", 800, DemandProfile.INDUSTRIAL, 240.0, 0.12, 0.03));
+            new Zone("Z-N", "North"),
+            new Zone("Z-C", "Central"),
+            new Zone("Z-E", "East"));
+
+    private static final List<ConsumerUnit> THREE_UNITS = List.of(
+            new ConsumerUnit("U-N", "Z-N", "North Home", DemandProfile.RESIDENTIAL, 800),
+            new ConsumerUnit("U-C", "Z-C", "Central Office", DemandProfile.COMMERCIAL, 1200),
+            new ConsumerUnit("U-E", "Z-E", "East Plant", DemandProfile.INDUSTRIAL, 2000));
 
     /** One call per port per tick, not one per zone -- batching is the point of the port shape. */
     @Test
@@ -36,7 +43,7 @@ class DemandSimulatorTests {
         var publishes = new AtomicInteger();
         var saves = new AtomicInteger();
 
-        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK,
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> THREE_UNITS, CLOCK,
                 snapshot -> publishes.incrementAndGet(),
                 snapshot -> saves.incrementAndGet());
 
@@ -52,7 +59,7 @@ class DemandSimulatorTests {
     @Test
     void aggregatesEveryZoneAndTotalsThem() {
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> THREE_UNITS, CLOCK, captured::add, snapshot -> {
         });
 
         simulator.tick(1);
@@ -67,6 +74,41 @@ class DemandSimulatorTests {
         assertThat(snapshot.simulatedTime()).isEqualTo("00:05");
     }
 
+    /** A zone's demand is its units' demand summed, computed the same way {@link DemandModel}
+     *  itself would -- not some independent approximation of it. */
+    @Test
+    void aZonesDemandIsTheSumOfItsOwnUnits() {
+        var captured = new ArrayList<DemandSnapshot>();
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> THREE_UNITS, CLOCK, captured::add, snapshot -> {
+        });
+
+        simulator.tick(100);
+        ZoneDemand north = captured.getFirst().zones().stream()
+                .filter(z -> z.zoneId().equals("Z-N")).findFirst().orElseThrow();
+
+        var time = CLOCK.timeOfDay(100);
+        var day = CLOCK.dayOfWeek(100);
+        double expected = DemandModel.demandKw(THREE_UNITS.get(0), time, day);
+
+        assertThat(north.demandKw()).isEqualTo(expected);
+        assertThat(north.unitCount()).isEqualTo(1);
+    }
+
+    /** A zone nobody has added a unit to yet reports zero, not an error. */
+    @Test
+    void aZoneWithNoUnitsReportsZeroDemand() {
+        var captured = new ArrayList<DemandSnapshot>();
+        var simulator = new DemandSimulator(() -> THREE_ZONES, List::of, CLOCK, captured::add, snapshot -> {
+        });
+
+        simulator.tick(1);
+
+        assertThat(captured.getFirst().zones()).allSatisfy(z -> {
+            assertThat(z.demandKw()).isZero();
+            assertThat(z.unitCount()).isZero();
+        });
+    }
+
     /**
      * Both ports are specified never to throw. This is what happens when one breaks
      * that contract:
@@ -75,7 +117,7 @@ class DemandSimulatorTests {
     @Test
     void aThrowingPublisherCostsNeitherTheTickNorTheOtherPort() {
         var saves = new AtomicInteger();
-        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK,
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> THREE_UNITS, CLOCK,
                 snapshot -> {
                     throw new IllegalStateException("broker exploded");
                 },
@@ -88,7 +130,7 @@ class DemandSimulatorTests {
     @Test
     void aThrowingStateStoreCostsNeitherTheTickNorTheOtherPort() {
         var publishes = new AtomicInteger();
-        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK,
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> THREE_UNITS, CLOCK,
                 snapshot -> publishes.incrementAndGet(),
                 snapshot -> {
                     throw new IllegalStateException("redis exploded");
@@ -101,7 +143,7 @@ class DemandSimulatorTests {
     @Test
     void anEmptyFleetOfZonesTicksWithoutFailing() {
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(List::of, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(List::of, List::of, CLOCK, captured::add, snapshot -> {
         });
 
         simulator.tick(1);
@@ -118,7 +160,7 @@ class DemandSimulatorTests {
     void aZoneAddedBetweenTicksAppearsOnTheNextOne() {
         List<Zone> fleet = new ArrayList<>(List.of(THREE_ZONES.get(0)));
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(() -> fleet, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(() -> fleet, () -> THREE_UNITS, CLOCK, captured::add, snapshot -> {
         });
 
         simulator.tick(1);
@@ -129,11 +171,34 @@ class DemandSimulatorTests {
         assertThat(captured.get(1).zones()).hasSize(2);
     }
 
+    /** Same idea, one level down: a unit added between ticks changes its zone's demand on the
+     *  very next tick, with no restart needed. */
+    @Test
+    void aUnitAddedBetweenTicksChangesItsZonesDemandOnTheNextOne() {
+        List<ConsumerUnit> units = new ArrayList<>(List.of(THREE_UNITS.get(0)));
+        var captured = new ArrayList<DemandSnapshot>();
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> units, CLOCK, captured::add, snapshot -> {
+        });
+
+        simulator.tick(1);
+        units.add(new ConsumerUnit("U-N2", "Z-N", "North Home B", DemandProfile.RESIDENTIAL, 650));
+        simulator.tick(2);
+
+        ZoneDemand firstTickNorth = captured.get(0).zones().stream()
+                .filter(z -> z.zoneId().equals("Z-N")).findFirst().orElseThrow();
+        ZoneDemand secondTickNorth = captured.get(1).zones().stream()
+                .filter(z -> z.zoneId().equals("Z-N")).findFirst().orElseThrow();
+
+        assertThat(firstTickNorth.unitCount()).isEqualTo(1);
+        assertThat(secondTickNorth.unitCount()).isEqualTo(2);
+        assertThat(secondTickNorth.demandKw()).isGreaterThan(firstTickNorth.demandKw());
+    }
+
     /** The snapshot handed to a port must not be mutable by it. */
     @Test
     void snapshotZonesAreImmutable() {
         var captured = new ArrayList<DemandSnapshot>();
-        var simulator = new DemandSimulator(() -> THREE_ZONES, CLOCK, captured::add, snapshot -> {
+        var simulator = new DemandSimulator(() -> THREE_ZONES, () -> THREE_UNITS, CLOCK, captured::add, snapshot -> {
         });
 
         simulator.tick(1);

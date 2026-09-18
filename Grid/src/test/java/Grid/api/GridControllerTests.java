@@ -33,7 +33,7 @@ class GridControllerTests {
     private GridClockRunner runner;
 
     private static GridStatus sampleStatus() {
-        return new GridStatus(144L, "12:00", 0L, 5L, -0.1, true, 900.0, 1000.0);
+        return new GridStatus(144L, "12:00", 0L, 5L, -0.1, true, 900.0, 1000.0, true);
     }
 
     @Test
@@ -49,7 +49,8 @@ class GridControllerTests {
                 .andExpect(jsonPath("$.frequencyDeviation").value(-0.1))
                 .andExpect(jsonPath("$.autoControlEnabled").value(true))
                 .andExpect(jsonPath("$.totalSupplyKw").value(900.0))
-                .andExpect(jsonPath("$.totalDemandKw").value(1000.0));
+                .andExpect(jsonPath("$.totalDemandKw").value(1000.0))
+                .andExpect(jsonPath("$.loadExceeded").value(true));
     }
 
     @Test
