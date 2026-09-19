@@ -82,6 +82,11 @@ services:
       # Unset, the broker's own JVM sizes its heap off whatever memory it can see -- which
       # without this cap would be this whole host's, not this container's 420m ceiling.
       KAFKA_HEAP_OPTS: "-Xmx224m -Xms224m"
+      # The log cleaner reserves a 128 MB dedupe buffer by default -- more than half of the heap
+      # capped above -- and the broker dies at startup with "OutOfMemoryError: Java heap space"
+      # in LogCleaner (then restart-loops forever). It only compacts __consumer_offsets here, so
+      # 16 MB is plenty.
+      KAFKA_LOG_CLEANER_DEDUPE_BUFFER_SIZE: "16777216"
     ports:
       - "9092:9092"
     volumes:

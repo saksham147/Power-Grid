@@ -120,9 +120,9 @@ persistence and schema decisions, the other owns the one thing a human actually 
    +-----------------------------------------------------------------------+
 
    +----------------------------- Frontend -------------------------------+
-   |  React + React Flow: the diagram above, live, plus a production-     |
-   |  mix bar, a goals panel, and a scoreboard -- polling every service    |
-   |  over its own REST API via TanStack Query.                           |
+   |  React game-style map (plants -> Grid -> zones and their houses)     |
+   |  over a details panel for whatever you click -- polling every        |
+   |  service over its own REST API via TanStack Query.                   |
    +-----------------------------------------------------------------------+
 ```
 
@@ -141,7 +141,7 @@ risk that one being slow or down affects the other.
 | 4 | **Grid** | 8092 | The simulation clock, frequency control | Spring MVC, hexagonal core |
 | 5 | **Billing** | 8094 | Wallets, pricing, ledger, unlocks | Spring MVC, hexagonal core |
 | 6 | **Database** | — | Postgres (3 schemas) + Redis (4 keys) | Schema-per-service, no FKs anywhere |
-| 7 | **Frontend** | 5173 | The live dashboard | React 19 + React Flow + TanStack Query |
+| 7 | **Frontend** | 5173 | The live dashboard | React 19 + TanStack Query, plain DOM (no canvas library) |
 
 Four of the five backend services share one shape: a thin `@KafkaListener`/`@RestController`
 adapter layer around a framework-free core (plain Java classes, no Spring annotations, tested
@@ -218,9 +218,12 @@ stands alone, so retention jobs can truncate history in any order without touchi
   behind cumulative grid-wide kWh sold.
 - **Grid**: automatic frequency control from live supply/demand, an explicit "load exceeded"
   failure state (not just a frequency number to interpret).
-- **Dashboard**: a live React Flow diagram (plants, storage, zones, customers, billing, with
-  edges that animate when live), a production-mix bar, a sequential goals panel, and a live
-  scoreboard (reliability, renewable share, goal completion, cost efficiency).
+- **Dashboard**: a game-style map -- power plants and storage on the left, the Grid hub in the
+  middle, and the city on the right, where each zone is a plot with its houses, shops and
+  factories inside it (power lines animate while energy flows). A bottom panel shows the Grid
+  overview by default (frequency, supply/demand, production mix, goals, scoreboard, service
+  health); click any plant, storage unit, zone or building and it shows that thing's live
+  details and actions instead (edit, decommission, add a building, forecast and output charts).
 
 ## Tech stack
 
@@ -229,7 +232,7 @@ stands alone, so retention jobs can truncate history in any order without touchi
 | Backend | Java 25, Spring Boot 4.1 |
 | Messaging | Apache Kafka (KRaft mode, no ZooKeeper) |
 | Persistence | Postgres 18 (schema-per-service), Redis |
-| Frontend | React 19, Vite 8, `@xyflow/react` (React Flow), TanStack Query, Tailwind CSS 4 |
+| Frontend | React 19, Vite 8, TanStack Query, Tailwind CSS 4 (plain DOM + inline SVG, no canvas/graph library) |
 | Containers | Docker Compose — multi-stage builds for each Java service, a dev-mode container for the frontend |
 
 ## Repository layout
