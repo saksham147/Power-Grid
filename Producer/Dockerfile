@@ -10,6 +10,10 @@ WORKDIR /app
 # dependency-download layer instead of re-fetching the internet on every source edit.
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
+# Explicit chmod: git stores mvnw as 100644 (a Windows checkout has no exec bit to record), so on any
+# Linux/macOS/WSL clone or CI checkout the COPY above lands it non-executable and the next RUN
+# dies with "./mvnw: Permission denied". Setting it here makes the build independent of the host.
+RUN chmod +x mvnw
 RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -o dependency:go-offline || true
 
 COPY src ./src
