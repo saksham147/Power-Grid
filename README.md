@@ -75,7 +75,7 @@ docker compose up -d    # start it again — same one command, every time
 | http://localhost:8090 – 8094 | Producer, Customer, Grid, Distributor, Billing REST APIs |
 | http://localhost:5050 | pgAdmin (`admin@email.com` / `adminpassword`) |
 | localhost:5433 | Postgres (`powergrid` / `powergrid`) |
-| localhost:6379 / localhost:9092 | Redis / Kafka, for poking around directly |
+| localhost:6380 / localhost:9092 | Redis / Kafka, for poking around directly (Redis is on 6380, not 6379, so it never collides with a Redis installed on your machine) |
 
 Every container carries a `mem_limit` and `restart: unless-stopped` — five JVMs left uncapped
 will each size a heap off the *host's* visible memory rather than their fair share, which is

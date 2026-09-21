@@ -9,7 +9,9 @@ spring:
   data:
     redis:
       host: localhost
-      port: 6379
+      # 6380, not 6379: docker-compose publishes Redis there so a native Redis install can't
+      # collide with it. (Inside Compose, SPRING_DATA_REDIS_PORT overrides this back to 6379.)
+      port: 6380
       # A slow Redis must not hold up a tick. The adapter is fire-and-forget, but a
       # bounded timeout stops a hung connection pinning resources either way.
       timeout: 2s

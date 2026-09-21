@@ -50,7 +50,11 @@ services:
     image: redis:latest
     command: ["redis-server", "--appendonly", "yes", "--databases", "16"]
     ports:
-      - "6379:6379"
+      # Host port 6380, not 6379: a Redis already installed on this machine owns 6379, and the
+      # published container port would lose to it (or fail to bind at all). Only the *host* side
+      # moves -- containers still reach this one at redis:6379 over the Compose network, which is
+      # why the services' SPRING_DATA_REDIS_PORT below stays "6379".
+      - "6380:6379"
     volumes:
       - redis-data:/data
     healthcheck:
