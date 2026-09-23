@@ -30,15 +30,15 @@
 		<java.version>25</java.version>
 	</properties>
 	<!--
-	  Deliberately narrow, like Producer and Customer. The generated pom also carried
-	  data-jpa + postgresql, restclient and session-data-redis; none are used. Grid owns
-	  no relational state, calls no other service over HTTP, and holds no user
-	  sessions. It is the single source of simulation time: a scheduled loop publishes
-	  each tick to Kafka for the other services to react to, and writes the current
-	  tick to Redis so anything can ask "what time is it" without joining the stream.
-	  WebMVC, not WebFlux: its own REST API (status, frequency deviation) touches
-	  nothing but a couple of volatile fields; there is no I/O on that path to keep
-	  off an event loop.
+	  Was deliberately narrower than this, like Producer and Customer: the generated pom also
+	  carried restclient and session-data-redis, still unused and still gone. data-jpa and
+	  postgresql came back for one reason: a history of the clock's own tick-by-tick figures
+	  (frequency deviation, supply, demand, overload) has nowhere else to live. Grid still calls
+	  no other service over HTTP and holds no user sessions; it is still the single source of
+	  simulation time, publishing each tick to Kafka and the current one to Redis exactly as
+	  before, this is a second, independent output, not a replacement for either. WebMVC, not
+	  WebFlux: its own REST API (status, frequency deviation, and now history) is either a couple
+	  of volatile fields or one blocking JPA read, never worth a reactive stack for.
 	-->
 	<dependencies>
 		<dependency>
@@ -55,6 +55,10 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 		<!--
@@ -65,6 +69,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jackson</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
 		</dependency>
 
 		<dependency>
@@ -81,6 +90,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-redis-reactive-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -104,6 +118,17 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+					  Tests do not go through main(), so they need the UTC default set here instead.
+					  See GridApplication.main for why it matters.
+					-->
+					<argLine>-Duser.timezone=UTC</argLine>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

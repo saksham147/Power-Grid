@@ -5,6 +5,27 @@ spring:
   application:
     name: grid-service
 
+  datasource:
+    # Port 5433, not 5432 -- docker-compose publishes there so a native Postgres install cannot
+    # silently win the port.
+    url: jdbc:postgresql://localhost:5433/powergrid
+    username: powergrid
+    password: powergrid
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        # Grid solely owns tick_record -- its own schema keeps the database-per-service
+        # boundary without forking the shared compose infrastructure.
+        default_schema: grid
+      jakarta:
+        persistence:
+          # Hibernate emits CREATE SCHEMA for default_schema above; without this it would assume
+          # the schema already exists and fail on a fresh database.
+          create-database-schemas: true
+
   data:
     redis:
       host: localhost
@@ -53,6 +74,15 @@ grid:
     # why starting at 0 is something to avoid. ISO-8601 (Duration), like the rest of the stack.
     resume-attempts: 10
     resume-retry-delay: PT3S
+
+  history:
+    # Wall-clock, not simulated-day, retention -- like Producer's own raw generation history, this
+    # is for a live chart, not long-term accounting, so there is no rollup tier keeping older data
+    # in a compressed form the way Billing/Distributor need for cost totals. A row aged past this
+    # is just deleted. ISO-8601 (Duration).
+    raw-retention: 24h
+    prune-interval: 10m
+    prune-enabled: true
 
 logging:
   level:
