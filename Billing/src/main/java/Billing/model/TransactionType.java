@@ -21,5 +21,11 @@ public enum TransactionType {
     PLANT_DECOMMISSION,
     /** A voluntary spend -- building a new storage unit. See
      *  {@code Billing.api.WalletController#purchaseStorage}. */
-    STORAGE_PURCHASE
+    STORAGE_PURCHASE,
+    /** A credit to the Grid Treasury -- the operator's side of a customer's {@link #BILL_DEBIT}, one
+     *  per bill and for the same amount, so what consumers pay is what the grid earns. It is a
+     *  separate type from {@code BILL_DEBIT} on purpose: revenue is summed from {@code BILL_DEBIT}
+     *  rows, and counting both sides of one payment would double it. See
+     *  {@code Billing.model.JpaBillingLedger}. */
+    BILL_REVENUE
 }

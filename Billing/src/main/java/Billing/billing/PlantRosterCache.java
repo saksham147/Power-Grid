@@ -1,6 +1,7 @@
 package Billing.billing;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Component;
@@ -32,6 +33,12 @@ public class PlantRosterCache {
 
     public void remove(Long plantId) {
         plantsById.remove(plantId);
+    }
+
+    /** Every known plant, active or not -- for a view that has to list an inactive plant too
+     *  (at zero running cost) rather than have it silently vanish. */
+    public Collection<PlantSnapshot> allPlants() {
+        return List.copyOf(plantsById.values());
     }
 
     /** Only these owe maintenance -- an inactive plant draws no upkeep, matching how it also

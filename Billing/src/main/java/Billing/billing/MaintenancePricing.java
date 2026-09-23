@@ -13,13 +13,19 @@ import java.util.Map;
  * Thermal plants cost the most to keep running (fuel handling, combustion maintenance), wind the
  * least (few moving parts relative to swept capacity) -- the same relative ordering {@link
  * PlantPricing}'s build cost already uses.
+ *
+ * <p>
+ * Raised 5x from the original 6.0/3.0/2.0: at those rates upkeep was a rounding error next to
+ * {@code billing.rate-per-kwh}'s revenue, so running a fleet cost nothing in practice and
+ * decommissioning an idle plant was never worth doing. It stays a fraction of the price of just
+ * running the same capacity at {@code billing.rate-per-kwh} 1.0.
  */
 public final class MaintenancePricing {
 
     private static final Map<PlantType, Double> RATE_PER_MW = Map.of(
-            PlantType.THERMAL, 6.0,
-            PlantType.WIND, 3.0,
-            PlantType.SOLAR, 2.0);
+            PlantType.THERMAL, 30.0,
+            PlantType.WIND, 15.0,
+            PlantType.SOLAR, 10.0);
 
     private MaintenancePricing() {
     }

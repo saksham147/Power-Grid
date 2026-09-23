@@ -38,8 +38,10 @@ spring:
 
 billing:
   # Flat rate for every zone. The spec doesn't ask for per-zone or per-profile pricing, so one
-  # property is enough.
-  rate-per-kwh: 8.0
+  # property is enough. Lowered 8x from the original 8.0 -- at that rate a fleet of only a few
+  # hundred MW billed revenue in the tens of thousands of rupees per second, dwarfing every other
+  # figure in the economy (plant cost, maintenance) by several orders of magnitude.
+  rate-per-kwh: 1.0
   # Demand above a zone's Distributor-assigned capacity is still billed, never refused, but at this
   # multiple of rate-per-kwh -- see Billing.billing.BillingCycleService. A zone with no capacity
   # assigned is unaffected by this.
@@ -54,6 +56,10 @@ billing:
     # same reason as billing.history.rollup-interval below.
     interval: PT10M
     enabled: true
+  flow:
+    # Wall-clock window the revenue-per-second figures average over -- see
+    # Billing.billing.MoneyFlowService. ISO-8601, like every other duration in this file.
+    window: PT60S
   # Whether the customer.demand @KafkaListener auto-starts. Off in tests, so loading the context
   # does not consume real events from a real broker.
   autostart: true

@@ -1,5 +1,6 @@
 package Billing.model;
 
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
@@ -34,4 +35,28 @@ public interface BillingRecordRepository extends JpaRepository<BillingRecord, Lo
      *  reports 0, not null. */
     @Query("select coalesce(sum(r.kwh), 0) from BillingRecord r")
     double sumKwh();
+
+    /** One zone's billed revenue over a time window -- see {@link #sumRevenueSince}. */
+    interface ZoneRevenueRow {
+        String getZoneId();
+
+        String getZoneName();
+
+        double getCostRupees();
+
+        double getOverageCostRupees();
+    }
+
+    /**
+     * What each zone was actually billed since {@code since}, split into total and overage
+     * surcharge -- the basis for {@code Billing.billing.MoneyFlowService}'s revenue-per-second
+     * figure. Summing real charges over a wall-clock window (rather than reading the latest tick)
+     * keeps the rate independent of the tick interval and smooths tick-to-tick demand noise.
+     * Only raw rows exist here, which is all a short window ever needs -- rollups are days old.
+     */
+    @Query("""
+            select r.zoneId as zoneId, max(r.zoneName) as zoneName,
+                   sum(r.costRupees) as costRupees, sum(r.overageCostRupees) as overageCostRupees
+            from BillingRecord r where r.recordedAt >= :since group by r.zoneId""")
+    List<ZoneRevenueRow> sumRevenueSince(Instant since);
 }
