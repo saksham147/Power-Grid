@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import Billing.api.WalletController;
 import Billing.billing.BillingLedger;
 import Billing.billing.BillingResult;
 
@@ -54,6 +55,18 @@ public class JpaBillingLedger implements BillingLedger {
                 zoneId, zoneName, tick, kwh, overageKwh, ratePerKwh, costRupees, overageCostRupees, timestamp));
         transactions.save(new WalletTransaction(
                 zoneId, TransactionType.BILL_DEBIT, costRupees, wallet.getBalanceRupees(), timestamp));
+
+        // What the customer paid is what the grid earned. The zone wallet is the customer's account
+        // (it only ever goes down, as consumption is billed); the Grid Treasury is the operator's,
+        // and it is what buys plants and pays upkeep -- so without this credit revenue would leave
+        // the customer and arrive nowhere, and the treasury could only shrink.
+        Wallet treasury = wallets.findByIdForUpdate(WalletController.GRID_WALLET_ID)
+                .orElseGet(() -> wallets.save(new Wallet(
+                        WalletController.GRID_WALLET_ID, WalletController.GRID_WALLET_NAME, startingBalance)));
+        treasury.credit(costRupees);
+        transactions.save(new WalletTransaction(
+                WalletController.GRID_WALLET_ID, TransactionType.BILL_REVENUE, costRupees,
+                treasury.getBalanceRupees(), timestamp));
 
         return Optional.of(new BillingResult(zoneId, zoneName, tick, kwh, overageKwh, ratePerKwh, costRupees,
                 overageCostRupees, wallet.getBalanceRupees(), timestamp));

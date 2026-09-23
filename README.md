@@ -216,6 +216,11 @@ stands alone, so retention jobs can truncate history in any order without touchi
 - **Economy**: progressive (tax-bracket) plant pricing, recurring maintenance charges, plant
   decommission refunds, a shared Grid Treasury wallet, and tech-tree unlocks that gate SOLAR/WIND
   behind cumulative grid-wide kWh sold.
+- **Money flow**: `GET /api/billing/flow` reports revenue per second by zone (a 60-second average
+  of what was actually billed), each plant's running cost per second (its maintenance rate spread
+  over the upkeep interval), and lifetime spend on the fleet by category. The dashboard shows it
+  per zone, per plant and per building -- a building's figure is its zone's revenue split by its
+  share of the zone's demand, since Billing records charges per zone, not per customer.
 - **Grid**: automatic frequency control from live supply/demand, an explicit "load exceeded"
   failure state (not just a frequency number to interpret).
 - **Dashboard**: a game-style map -- power plants and storage on the left, the Grid hub in the

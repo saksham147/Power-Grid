@@ -5,6 +5,7 @@ export const billingKeys = {
   wallets: ['billing', 'wallets'],
   unlocks: ['billing', 'unlocks'],
   summary: ['billing', 'summary'],
+  flow: ['billing', 'flow'],
 }
 
 /** Billing has no clock of its own either -- see distributorQueries -- so this polls at the same
@@ -86,5 +87,16 @@ export function useDecommissionPlant(onSuccess) {
       qc.invalidateQueries({ queryKey: billingKeys.wallets })
       onSuccess?.(...args)
     },
+  })
+}
+
+/** The rates are a 60 s wall-clock average and new charges land once per 5 s tick, so polling faster
+ *  than the tick would only re-read the same numbers. */
+export function useMoneyFlow() {
+  return useQuery({
+    queryKey: billingKeys.flow,
+    queryFn: billingApi.getMoneyFlow,
+    refetchInterval: 5000,
+    retry: false,
   })
 }

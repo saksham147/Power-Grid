@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 
@@ -65,6 +66,17 @@ public class KafkaConfig {
      * after every restart, not just changes that happen to arrive afterward. Capacity changes are
      * low-volume (an admin edit, not a per-tick event), so replaying the whole topic on startup
      * costs nothing worth avoiding.
+     *
+     * <p>
+     * {@code earliest} on its own is not enough for that, and was quietly not delivering it: it
+     * only applies when Kafka has <em>no committed offset</em> for the group, and the container
+     * commits one after every batch by default. The very first time this group ran that was
+     * indistinguishable from a genuine full replay -- there was nothing committed yet -- but every
+     * restart since has resumed from wherever it left off, exactly like a normal at-least-once
+     * consumer, and left the mirror below missing anything published before that offset. Found by
+     * the plant-roster mirror going empty on a restart, which shares this exact setup -- see
+     * {@code plantRosterConsumerFactory} below. {@link
+     * #zoneCapacityListenerContainerFactory(ConsumerFactory)} carries the actual fix.
      */
     @Bean
     ConsumerFactory<String, ZoneCapacityEvent> zoneCapacityConsumerFactory(KafkaProperties kafkaProperties) {
@@ -81,6 +93,11 @@ public class KafkaConfig {
             ConsumerFactory<String, ZoneCapacityEvent> zoneCapacityConsumerFactory) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, ZoneCapacityEvent>();
         factory.setConsumerFactory(zoneCapacityConsumerFactory);
+        // MANUAL, and ZoneCapacityListener never acknowledges: this group commits no offset, ever,
+        // so `earliest` above finds none to resume from on every single restart and genuinely
+        // replays the whole topic, rebuilding the cache from scratch as the class doc promises --
+        // see this factory's own doc comment for what committing normally would have broken.
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return factory;
     }
 
@@ -106,6 +123,11 @@ public class KafkaConfig {
             ConsumerFactory<String, PlantRosterEvent> plantRosterConsumerFactory) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, PlantRosterEvent>();
         factory.setConsumerFactory(plantRosterConsumerFactory);
+        // See zoneCapacityListenerContainerFactory's own comment: this group must never commit an
+        // offset either, or `earliest` above only ever fires once and every later restart resumes
+        // a stale mirror instead of rebuilding it -- which is exactly how this cache went empty
+        // after a Billing restart even though PlantRosterListener was working correctly.
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return factory;
     }
 }

@@ -47,6 +47,13 @@ grid:
     # bound, so automatic and manual control never disagree about how far this model may drift.
     auto-control-max-deviation: 0.25
 
+  clock:
+    # How many times Grid tries to read its saved tick from Redis at boot, and how long it waits
+    # between tries, before giving up and starting at tick 0 -- see Grid.redis.RedisClockStore for
+    # why starting at 0 is something to avoid. ISO-8601 (Duration), like the rest of the stack.
+    resume-attempts: 10
+    resume-retry-delay: PT3S
+
 logging:
   level:
     Grid: DEBUG

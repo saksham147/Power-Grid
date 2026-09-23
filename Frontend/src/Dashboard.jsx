@@ -4,9 +4,10 @@ import { useStatus, usePlants, useDeletePlant } from './lib/queries'
 import { useGridStatus } from './lib/gridQueries'
 import { useDistributionStatus, useZoneCapacities } from './lib/distributorQueries'
 import { useDemand, useZones, useUnits, useDeleteUnit } from './lib/customerQueries'
-import { useWallets, useDecommissionPlant, useUnlocks, useBillingSummary } from './lib/billingQueries'
+import { useWallets, useDecommissionPlant, useUnlocks, useBillingSummary, useMoneyFlow } from './lib/billingQueries'
 import { useStorageUnits, useDeleteStorage } from './lib/storageQueries'
 import { rupees } from './lib/format'
+import { revenueByUnit } from './lib/money'
 
 import { ACCENT, OFFLINE, plantCost } from './game/constants'
 import World from './game/World'
@@ -21,6 +22,9 @@ import {
 const DECOMMISSION_REFUND_RATIO = 0.5
 
 const GRID = { kind: 'grid' }
+
+// Billing.api.WalletController.GRID_WALLET_ID
+const GRID_WALLET_ID = 'GRID'
 
 /**
  * The whole app: a map of the grid (plants and storage feeding the Grid hub, which feeds the
@@ -72,6 +76,7 @@ export default function Dashboard() {
   const units = useMemo(() => rawUnits && [...rawUnits].sort((a, b) => a.unitId.localeCompare(b.unitId)), [rawUnits])
   const { data: billingSummary } = useBillingSummary()
   const { data: unlocks } = useUnlocks()
+  const { data: flow } = useMoneyFlow()
 
   // Escape returns to the Grid overview, the same as clicking empty ground on the map.
   useEffect(() => {
@@ -107,7 +112,11 @@ export default function Dashboard() {
   const onlineCount = services.filter((s) => s.online).length
 
   const gridBalanceKw = (grid?.totalSupplyKw ?? 0) - (grid?.totalDemandKw ?? 0)
-  const totalBalanceRupees = wallets?.reduce((sum, w) => sum + w.balanceRupees, 0) ?? 0
+  // The Grid Treasury -- the operator's money, which every customer bill is credited to and every
+  // plant purchase and upkeep charge is paid from. Deliberately NOT the sum of all wallets: the
+  // zone wallets are the customers' accounts and only ever go down as consumption is billed, so
+  // adding them in made a healthy grid look millions in the red.
+  const treasuryRupees = wallets?.find((w) => w.zoneId === GRID_WALLET_ID)?.balanceRupees ?? 0
 
   const totalOutputMw = (plants ?? []).reduce((sum, p) => sum + Math.max(0, p.currentOutputMw), 0)
   const renewableOutputMw = (plants ?? [])
@@ -131,6 +140,20 @@ export default function Dashboard() {
   }, [units])
   const demandByZone = useMemo(() => new Map((demand?.zones ?? []).map((z) => [z.zoneId, z])), [demand])
   const capacityByZone = useMemo(() => new Map((zoneCapacities ?? []).map((c) => [c.zoneId, c])), [zoneCapacities])
+
+  // Money per second, joined to the things drawn on the map: a zone's own revenue rate comes
+  // straight from Billing; a building's is that rate split by its share of the zone's live demand
+  // (see lib/money.js); a plant's is its maintenance cost spread over the upkeep interval.
+  const money = useMemo(() => {
+    const zoneRevenue = new Map((flow?.zones ?? []).map((z) => [z.zoneId, z]))
+    const zoneRate = new Map([...zoneRevenue].map(([id, z]) => [id, z.revenuePerSecondRupees]))
+    return {
+      flow,
+      zoneRevenue,
+      unitRevenue: revenueByUnit(zoneRate, units ?? []),
+      plantCost: new Map((flow?.plants ?? []).map((p) => [p.plantId, p])),
+    }
+  }, [flow, units])
 
   // `null` for an unreachable service (not an empty list) so the map can say "offline" instead of
   // showing an empty region that looks like "nothing built yet".
@@ -178,7 +201,13 @@ export default function Dashboard() {
           <span className="tabular-nums">
             {grid?.simulatedTime ?? '--:--'} <span className="text-slate-400">· tick {grid?.tickNumber ?? 0}</span>
           </span>
-          <span className="tabular-nums font-semibold text-slate-900">{rupees(totalBalanceRupees)}</span>
+          <span
+            className={`tabular-nums font-semibold ${treasuryRupees < 0 ? 'text-red-600' : 'text-slate-900'}`}
+            title="Grid Treasury: customer bills come in, plants and upkeep are paid from it"
+          >
+            <span className="mr-1 font-normal text-slate-400">Treasury</span>
+            {rupees(treasuryRupees)}
+          </span>
           <span className="flex items-center gap-1.5">
             <span
               className="inline-block h-1.5 w-1.5 rounded-full"
@@ -198,6 +227,7 @@ export default function Dashboard() {
         unitsByZone={unitsByZone}
         demandByZone={demandByZone}
         capacityByZone={capacityByZone}
+        money={money}
         selection={selection}
         onSelect={select}
         onAddPlant={() => setShowAddPlant(true)}
@@ -210,11 +240,11 @@ export default function Dashboard() {
         selection={selection}
         data={{
           plants: mapPlants, storageUnits: mapStorage, zones: mapZones, units: customerOnline ? units : null,
-          unitsByZone, demandByZone, capacityByZone,
+          unitsByZone, demandByZone, capacityByZone, money,
         }}
         overview={{
-          grid, gridOnline, gridBalanceKw, plants, services, billingOnline, totalBalanceRupees,
-          summary: billingSummary, unlocks, reliabilityPct, renewableSharePct, unitCount: units?.length ?? 0,
+          grid, gridOnline, gridBalanceKw, plants, services, billingOnline, treasuryRupees,
+          summary: billingSummary, money, unlocks, reliabilityPct, renewableSharePct, unitCount: units?.length ?? 0,
         }}
         actions={actions}
       />

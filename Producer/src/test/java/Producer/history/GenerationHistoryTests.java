@@ -53,7 +53,8 @@ import jakarta.persistence.EntityManagerFactory;
         "spring.jpa.properties.hibernate.default_schema=producer_test",
         "spring.jpa.properties.hibernate.generate_statistics=true",
         "producer.simulation.autostart=false",
-        "producer.history.rollup-enabled=false"
+        "producer.history.rollup-enabled=false",
+        "producer.roster-sync.enabled=false"
 })
 class GenerationHistoryTests {
 

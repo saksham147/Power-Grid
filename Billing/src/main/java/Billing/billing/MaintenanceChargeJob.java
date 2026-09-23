@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import Billing.api.WalletController;
 import Billing.model.TransactionType;
@@ -19,10 +19,9 @@ import Billing.model.WalletTransactionRepository;
 /**
  * Charges the shared Grid wallet a recurring upkeep cost for every active plant, on top of
  * whatever the plant already cost to build. Mirrors {@code Billing.history.BillingRollupJob}'s
- * {@code @Scheduled} shape (ISO-8601 interval string, an {@code enabled} guard, try/catch-swallow
- * so one bad run doesn't cancel the schedule) but needs no {@code TransactionTemplate}: unlike a
- * rollup, this has no self-call to protect against, so a plain {@code @Transactional} method is
- * enough.
+ * {@code @Scheduled} shape: an ISO-8601 interval string, an {@code enabled} guard, try/catch-swallow
+ * so one bad run doesn't cancel the schedule, and a {@link TransactionTemplate} to run the charge
+ * in a transaction (see {@link #runOnce()} for why an annotation would not).
  *
  * <p>
  * This is a mandatory charge, not a voluntary spend -- a plant can't be "not maintained" to avoid
@@ -40,22 +39,36 @@ public class MaintenanceChargeJob {
     private final PlantRosterCache roster;
     private final WalletRepository wallets;
     private final WalletTransactionRepository transactions;
+    private final TransactionTemplate transactionTemplate;
     private final boolean enabled;
     private final double startingBalance;
 
     public MaintenanceChargeJob(PlantRosterCache roster, WalletRepository wallets,
-            WalletTransactionRepository transactions,
+            WalletTransactionRepository transactions, TransactionTemplate transactionTemplate,
             @Value("${billing.maintenance.enabled:true}") boolean enabled,
             @Value("${billing.starting-balance}") double startingBalance) {
         this.roster = roster;
         this.wallets = wallets;
         this.transactions = transactions;
+        this.transactionTemplate = transactionTemplate;
         this.enabled = enabled;
         this.startingBalance = startingBalance;
     }
 
-    @Transactional
+    /**
+     * Runs the charge inside a transaction it opens itself. A {@code @Transactional} annotation on
+     * this method would do nothing: {@link #runScheduled} calls it on {@code this}, which never
+     * passes through Spring's transaction proxy. That is exactly how this job once wrote its ledger
+     * rows without ever changing the wallet balance -- the wallet was loaded outside any
+     * transaction, debited in memory, and the change was never flushed. {@code
+     * Billing.history.BillingRollupJob} uses a {@link TransactionTemplate} for the same reason.
+     */
     double runOnce() {
+        Double charged = transactionTemplate.execute(status -> chargeUpkeep());
+        return charged == null ? 0.0 : charged;
+    }
+
+    private double chargeUpkeep() {
         double totalCost = roster.activePlants().stream()
                 .mapToDouble(p -> MaintenancePricing.costFor(p.type(), p.capacityMw()))
                 .sum();
@@ -64,7 +77,7 @@ public class MaintenanceChargeJob {
             return 0.0;
         }
 
-        Wallet wallet = wallets.findById(WalletController.GRID_WALLET_ID)
+        Wallet wallet = wallets.findByIdForUpdate(WalletController.GRID_WALLET_ID)
                 .orElseGet(() -> wallets.save(
                         new Wallet(WalletController.GRID_WALLET_ID, WalletController.GRID_WALLET_NAME, startingBalance)));
 

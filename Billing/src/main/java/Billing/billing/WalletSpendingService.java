@@ -46,7 +46,7 @@ public class WalletSpendingService {
      */
     @Transactional
     public double spend(String zoneId, String zoneName, double amountRupees, TransactionType type) {
-        Wallet wallet = wallets.findById(zoneId)
+        Wallet wallet = wallets.findByIdForUpdate(zoneId)
                 .orElseGet(() -> wallets.save(new Wallet(zoneId, zoneName, startingBalance)));
 
         if (wallet.getBalanceRupees() < amountRupees) {
@@ -70,7 +70,7 @@ public class WalletSpendingService {
      */
     @Transactional
     public double credit(String zoneId, String zoneName, double amountRupees, TransactionType type) {
-        Wallet wallet = wallets.findById(zoneId)
+        Wallet wallet = wallets.findByIdForUpdate(zoneId)
                 .orElseGet(() -> wallets.save(new Wallet(zoneId, zoneName, startingBalance)));
 
         wallet.renameTo(zoneName);

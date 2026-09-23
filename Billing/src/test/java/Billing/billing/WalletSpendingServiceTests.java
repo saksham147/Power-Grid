@@ -34,7 +34,7 @@ class WalletSpendingServiceTests {
         var service = new WalletSpendingService(wallets, transactions, STARTING_BALANCE);
 
         Wallet wallet = new Wallet("Z-N", "North", 5000.0);
-        given(wallets.findById("Z-N")).willReturn(Optional.of(wallet));
+        given(wallets.findByIdForUpdate("Z-N")).willReturn(Optional.of(wallet));
 
         double balanceAfter = service.spend("Z-N", "North", 2000.0);
 
@@ -50,7 +50,7 @@ class WalletSpendingServiceTests {
         var service = new WalletSpendingService(wallets, transactions, STARTING_BALANCE);
 
         Wallet wallet = new Wallet("Z-N", "North", 500.0);
-        given(wallets.findById("Z-N")).willReturn(Optional.of(wallet));
+        given(wallets.findByIdForUpdate("Z-N")).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() -> service.spend("Z-N", "North", 2000.0))
                 .isInstanceOf(InsufficientFundsException.class);
@@ -65,7 +65,7 @@ class WalletSpendingServiceTests {
         var transactions = mock(WalletTransactionRepository.class);
         var service = new WalletSpendingService(wallets, transactions, STARTING_BALANCE);
 
-        given(wallets.findById("Z-NEW")).willReturn(Optional.empty());
+        given(wallets.findByIdForUpdate("Z-NEW")).willReturn(Optional.empty());
         given(wallets.save(any(Wallet.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         double balanceAfter = service.spend("Z-NEW", "New Zone", 3000.0);
@@ -79,7 +79,7 @@ class WalletSpendingServiceTests {
         var transactions = mock(WalletTransactionRepository.class);
         var service = new WalletSpendingService(wallets, transactions, STARTING_BALANCE);
 
-        given(wallets.findById("Z-N")).willReturn(Optional.of(new Wallet("Z-N", "North", 5000.0)));
+        given(wallets.findByIdForUpdate("Z-N")).willReturn(Optional.of(new Wallet("Z-N", "North", 5000.0)));
 
         service.spend("Z-N", "North", 100.0);
 

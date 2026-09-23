@@ -12,7 +12,8 @@ import org.springframework.boot.test.context.SpringBootTest;
  */
 @SpringBootTest(properties = {
         "producer.simulation.autostart=false",
-        "producer.history.rollup-enabled=false"
+        "producer.history.rollup-enabled=false",
+        "producer.roster-sync.enabled=false"
 })
 class ProducerApplicationTests {
 
