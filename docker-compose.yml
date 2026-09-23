@@ -162,15 +162,21 @@ services:
     ports:
       - "8092:8092"
     environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/powergrid
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    mem_limit: 340m
+    # Raised from 340m: adding JPA/Hibernate/HikariCP for the tick-history table pushed steady-state
+    # usage to ~93% of that ceiling almost immediately -- 400m matches Producer/Distributor, which
+    # carry the same Kafka + Postgres/JPA + blocking-web profile Grid now does too.
+    mem_limit: 400m
     restart: unless-stopped
 
   distributor:

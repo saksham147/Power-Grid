@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { usePlantHistory, usePlantForecast } from '../lib/queries'
+import { useGridHistory } from '../lib/gridQueries'
 import { useUpgradeZone, useDeleteZone } from '../lib/customerQueries'
 import { mw, mwh, kw, hz, rupees, rupeesPerSec, signedRupeesPerSec } from '../lib/format'
 import {
@@ -8,6 +9,7 @@ import {
 } from './constants'
 import { BuildingIcon, SourceIcon, GridIcon, ZoneIcon } from './icons'
 import { ErrorBox } from './modals'
+import HistoryCharts from './HistoryChart'
 
 // The bottom dashboard. Shows the Grid overview until something on the map is clicked, then that
 // thing's details -- a plant, a storage unit, a zone or a single house -- with its actions. It is
@@ -328,6 +330,9 @@ function MoneyCard({ money }) {
 function GridView({ o }) {
   const { grid, gridOnline } = o
   const freq = grid?.frequencyDeviation ?? 0
+  // 288 = one simulated day at the default tick pace (Grid.simulation.SimulationClock.TICKS_PER_DAY)
+  // -- long enough to see a full day's solar/demand cycle, matching the endpoint's own default.
+  const { data: history } = useGridHistory(gridOnline, 288)
   const goalsData = { plantCount: o.plants?.length ?? 0, renewableSharePct: o.renewableSharePct, customerCount: o.unitCount }
   const goalsCompletedPct = (GOALS.filter((g) => g.current(goalsData) >= g.target).length / GOALS.length) * 100
   const costEfficiencyLabel = o.summary && o.summary.spendRupees > 0
@@ -398,6 +403,10 @@ function GridView({ o }) {
           <ServicesCard services={o.services} />
         </div>
       </div>
+
+      <Card title="History · last day">
+        {gridOnline ? <HistoryCharts points={history} /> : <p className="text-xs text-slate-400">Grid is offline.</p>}
+      </Card>
     </PanelShell>
   )
 }

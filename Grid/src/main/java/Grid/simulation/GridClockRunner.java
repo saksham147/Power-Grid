@@ -14,6 +14,7 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
 import Grid.event.GridTickEvent;
+import Grid.history.TickHistoryRecorder;
 import Grid.kafka.GridTickPublisher;
 import Grid.redis.RedisClockStore;
 import jakarta.annotation.PreDestroy;
@@ -36,6 +37,14 @@ import jakarta.annotation.PreDestroy;
  * #setFrequencyDeviation} is a manual override that switches automatic control back off, on the
  * theory that a human taking direct command of frequency should not have that command silently
  * overwritten by the very next tick.
+ *
+ * <h2>Three outputs, one tick</h2>
+ *
+ * Every tick, in order: {@link #publisher} sends the event every other service reacts to, {@link
+ * #clockStore} saves the latest tick for a restart to resume from, and {@link #history} records
+ * this tick's figures for the dashboard's history chart. The third is the newest and the least
+ * essential of the three -- it runs last, after the other two have already taken full effect, so
+ * a history-write failure can only ever cost one chart data point, never the tick itself.
  */
 @Service
 public class GridClockRunner {
@@ -44,6 +53,7 @@ public class GridClockRunner {
 
     private final GridTickPublisher publisher;
     private final RedisClockStore clockStore;
+    private final TickHistoryRecorder history;
     private final TaskScheduler scheduler;
     private final GridStateTracker state;
     private final FrequencyController frequencyController;
@@ -64,11 +74,12 @@ public class GridClockRunner {
     private volatile boolean autoControlEnabled;
     private volatile boolean loadExceeded;
 
-    public GridClockRunner(GridTickPublisher publisher, RedisClockStore clockStore,
+    public GridClockRunner(GridTickPublisher publisher, RedisClockStore clockStore, TickHistoryRecorder history,
             @Qualifier("clockTaskScheduler") TaskScheduler scheduler, GridStateTracker state,
             GridProperties properties) {
         this.publisher = publisher;
         this.clockStore = clockStore;
+        this.history = history;
         this.scheduler = scheduler;
         this.state = state;
         this.frequencyController = new FrequencyController(properties.autoControlGain(),
@@ -164,6 +175,8 @@ public class GridClockRunner {
             GridTickEvent event = new GridTickEvent(number, deviation);
             publisher.publish(event);
             clockStore.save(number, deviation, now);
+            history.record(number, SimulationClock.formatTimeOfDay(number), SimulationClock.dayNumber(number),
+                    deviation, supplyKw, demandKw, loadExceeded, now);
 
             return event;
         } finally {
