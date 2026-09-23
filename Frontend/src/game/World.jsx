@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { mw, kw, hz } from '../lib/format'
+import { mw, kw, hz, rupeesPerSec } from '../lib/format'
 import { ACCENT, OFFLINE, NEGATIVE, POSITIVE, PLANT_TYPES, STORAGE_TYPES, PROFILE_TYPES } from './constants'
 import { BuildingIcon, SourceIcon, GridIcon, ZoneIcon } from './icons'
 
@@ -10,6 +10,9 @@ import { BuildingIcon, SourceIcon, GridIcon, ZoneIcon } from './icons'
 // object, so a poll that changes one plant re-renders one tile, not the whole map.
 
 const AMBER = '#f59e0b'
+
+// Billing offline: every building simply has no rate to show, rather than a misleading 0.
+const NO_REVENUE = new Map()
 
 const tileBase =
   'relative flex flex-col items-center rounded-xl border bg-white text-center shadow-sm transition '
@@ -55,7 +58,7 @@ const SourceTile = memo(function SourceTile({ kind, item, selected, onSelect }) 
 
 /** One house, shop, factory or government building inside a zone. The meter is its live load
  *  against its own rating, turning amber near the ceiling and red past it. */
-const BuildingTile = memo(function BuildingTile({ unit, selected, onSelect }) {
+const BuildingTile = memo(function BuildingTile({ unit, revenue, selected, onSelect }) {
   const meta = PROFILE_TYPES[unit.type] ?? { color: OFFLINE, label: unit.type }
   const pct = unit.capacityKw > 0 ? (unit.demandKw / unit.capacityKw) * 100 : 0
   const meterColor = pct >= 100 ? NEGATIVE : pct >= 85 ? AMBER : meta.color
@@ -63,7 +66,7 @@ const BuildingTile = memo(function BuildingTile({ unit, selected, onSelect }) {
   return (
     <button
       type="button"
-      title={`${unit.name} · ${meta.label} · ${kw(unit.demandKw)}`}
+      title={`${unit.name} · ${meta.label} · ${kw(unit.demandKw)}${revenue == null ? '' : ` · ${rupeesPerSec(revenue)}`}`}
       onClick={(e) => { e.stopPropagation(); onSelect('unit', unit.unitId) }}
       className={`${tileBase} w-[52px] gap-0.5 px-1 pb-1 pt-1.5 ${selected ? selectedRing : 'border-slate-200'}`}
     >
@@ -94,7 +97,7 @@ function Offline({ label }) {
   )
 }
 
-function ZonePlot({ zone, units, demandKw, overCapacity, selection, onSelect, onAddUnit }) {
+function ZonePlot({ zone, units, demandKw, revenue, unitRevenue, overCapacity, selection, onSelect, onAddUnit }) {
   const selected = selection.kind === 'zone' && selection.id === zone.zoneId
 
   return (
@@ -111,7 +114,12 @@ function ZonePlot({ zone, units, demandKw, overCapacity, selection, onSelect, on
         {overCapacity && (
           <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-semibold text-red-600">OVER</span>
         )}
-        <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-500">{kw(demandKw)}</span>
+        <span className="ml-auto shrink-0 text-right tabular-nums">
+          <span className="block text-[11px] font-semibold text-emerald-700">
+            {revenue == null ? '—' : rupeesPerSec(revenue)}
+          </span>
+          <span className="block text-[9px] text-slate-500">{kw(demandKw)}</span>
+        </span>
       </button>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -119,6 +127,7 @@ function ZonePlot({ zone, units, demandKw, overCapacity, selection, onSelect, on
           <BuildingTile
             key={u.unitId}
             unit={u}
+            revenue={unitRevenue.get(u.unitId)}
             selected={selection.kind === 'unit' && selection.id === u.unitId}
             onSelect={onSelect}
           />
@@ -174,7 +183,7 @@ function Region({ title, className = '', children }) {
 }
 
 export default function World({
-  grid, gridOnline, plants, storageUnits, zones, unitsByZone, demandByZone, capacityByZone,
+  grid, gridOnline, plants, storageUnits, zones, unitsByZone, demandByZone, capacityByZone, money,
   selection, onSelect, onAddPlant, onAddStorage, onAddZone, onAddUnit,
 }) {
   return (
@@ -234,6 +243,8 @@ export default function World({
                   zone={z}
                   units={unitsByZone.get(z.zoneId) ?? []}
                   demandKw={demandByZone.get(z.zoneId)?.demandKw ?? 0}
+                  revenue={money.flow ? (money.zoneRevenue.get(z.zoneId)?.revenuePerSecondRupees ?? 0) : undefined}
+                  unitRevenue={money.flow ? money.unitRevenue : NO_REVENUE}
                   overCapacity={Boolean(capacityByZone.get(z.zoneId)?.overCapacity)}
                   selection={selection}
                   onSelect={onSelect}

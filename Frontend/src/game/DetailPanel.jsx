@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { usePlantHistory, usePlantForecast } from '../lib/queries'
 import { useUpgradeZone, useDeleteZone } from '../lib/customerQueries'
-import { mw, mwh, kw, hz, rupees } from '../lib/format'
+import { mw, mwh, kw, hz, rupees, rupeesPerSec, signedRupeesPerSec } from '../lib/format'
 import {
   ACCENT, OFFLINE, POSITIVE, NEGATIVE, INK, PLANT_TYPES, STORAGE_TYPES, PROFILE_TYPES, plantCost,
 } from './constants'
@@ -15,6 +15,9 @@ import { ErrorBox } from './modals'
 // that gets deleted simply falls back to the Grid view (no stale panel, no effect needed).
 
 const AMBER = '#f59e0b'
+
+// Billing offline: no per-building rates to show.
+const NO_REVENUE = new Map()
 
 const btn = 'rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40'
 const btnPrimary = `${btn} border-slate-900 bg-slate-900 text-white hover:bg-slate-700`
@@ -241,6 +244,87 @@ function ServicesCard({ services }) {
   )
 }
 
+// ---- Money flow -------------------------------------------------------------------------------
+
+function MoneyRow({ label, value, tone, strong }) {
+  return (
+    <div className="flex items-center justify-between text-[11px]">
+      <span className={strong ? 'font-medium text-slate-700' : 'text-slate-500'}>{label}</span>
+      <span
+        className={`tabular-nums ${strong ? 'font-semibold' : 'font-medium'}`}
+        style={{ color: tone === 'positive' ? POSITIVE : tone === 'negative' ? NEGATIVE : INK }}
+      >
+        {value}
+      </span>
+    </div>
+  )
+}
+
+/** Where money is moving: what customers are being billed per second (in total and by zone), what
+ *  the plant fleet costs to keep running per second, and what has been spent on the fleet so far.
+ *  Rates are a rolling average computed by Billing, so they hold steady between ticks. */
+function MoneyCard({ money }) {
+  const flow = money?.flow
+  if (!flow) {
+    return (
+      <Card title="Money flow">
+        <p className="text-xs text-slate-400">Billing is offline.</p>
+      </Card>
+    )
+  }
+
+  const { spend } = flow
+  const zones = [...flow.zones].sort((a, b) => b.revenuePerSecondRupees - a.revenuePerSecondRupees)
+  const topRate = Math.max(1e-9, ...zones.map((z) => z.revenuePerSecondRupees))
+
+  return (
+    <Card title={`Money flow · per second, ${flow.windowSeconds}s average`}>
+      <div className="space-y-1">
+        <MoneyRow label="Revenue (billed to customers)" value={rupeesPerSec(flow.revenuePerSecondRupees)} tone="positive" />
+        <MoneyRow label="Plant running cost" value={rupeesPerSec(flow.plantRunningCostPerSecondRupees)} tone="negative" />
+        <MoneyRow
+          strong
+          label="Net"
+          value={signedRupeesPerSec(flow.netPerSecondRupees)}
+          tone={flow.netPerSecondRupees < 0 ? 'negative' : flow.netPerSecondRupees > 0 ? 'positive' : undefined}
+        />
+      </div>
+
+      <p className="mt-3 text-[10px] text-slate-400">Revenue by zone</p>
+      {zones.length === 0 ? (
+        <p className="mt-1 text-xs text-slate-400">Nothing billed yet.</p>
+      ) : (
+        <div className="mt-1 space-y-1.5">
+          {zones.map((z) => (
+            <div key={z.zoneId}>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="truncate text-slate-600">{z.zoneName}</span>
+                <span className="tabular-nums font-medium text-slate-900">{rupeesPerSec(z.revenuePerSecondRupees)}</span>
+              </div>
+              <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${(z.revenuePerSecondRupees / topRate) * 100}%`, background: POSITIVE }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-3 text-[10px] text-slate-400">Spent on the fleet, lifetime</p>
+      <div className="mt-1 space-y-1">
+        <MoneyRow label="Plant purchases" value={rupees(spend.purchaseRupees)} />
+        <MoneyRow label="Upgrades" value={rupees(spend.upgradeRupees)} />
+        <MoneyRow label="Maintenance" value={rupees(spend.maintenanceRupees)} />
+        <MoneyRow label="Storage" value={rupees(spend.storageRupees)} />
+        <MoneyRow label="Decommission refunds" value={`-${rupees(spend.decommissionRefundRupees)}`} tone="positive" />
+        <MoneyRow strong label="Net spend" value={rupees(spend.netRupees)} />
+      </div>
+    </Card>
+  )
+}
+
 function GridView({ o }) {
   const { grid, gridOnline } = o
   const freq = grid?.frequencyDeviation ?? 0
@@ -280,9 +364,13 @@ function GridView({ o }) {
               tone={gridOnline ? (grid.loadExceeded ? 'negative' : 'positive') : undefined}
             />
             <Stat label="Control" value={dash(grid?.autoControlEnabled ? 'Automatic' : 'Manual')} />
-            <Stat label="Wallet" value={o.billingOnline ? rupees(o.totalBalanceRupees) : '—'} />
-            <Stat label="Revenue" value={o.summary ? rupees(o.summary.revenueRupees) : '—'} />
-            <Stat label="Spend" value={o.summary ? rupees(o.summary.spendRupees) : '—'} />
+            <Stat
+              label="Treasury"
+              value={o.billingOnline ? rupees(o.treasuryRupees) : '—'}
+              tone={o.billingOnline && o.treasuryRupees < 0 ? 'negative' : undefined}
+            />
+            <Stat label="Revenue (all time)" value={o.summary ? rupees(o.summary.revenueRupees) : '—'} />
+            <Stat label="Spend (all time)" value={o.summary ? rupees(o.summary.spendRupees) : '—'} />
           </StatGrid>
 
           {o.unlocks?.nextUnlock && (
@@ -295,8 +383,8 @@ function GridView({ o }) {
         </div>
 
         <div className="space-y-3">
+          <MoneyCard money={o.money} />
           <MixCard plants={o.plants} />
-          <ServicesCard services={o.services} />
         </div>
 
         <div className="space-y-3">
@@ -307,6 +395,7 @@ function GridView({ o }) {
             goalsCompletedPct={goalsCompletedPct}
             costEfficiencyLabel={costEfficiencyLabel}
           />
+          <ServicesCard services={o.services} />
         </div>
       </div>
     </PanelShell>
@@ -315,7 +404,7 @@ function GridView({ o }) {
 
 // ---- Plant ------------------------------------------------------------------------------------
 
-function PlantView({ plant, onBack, onEdit, onDelete }) {
+function PlantView({ plant, cost, onBack, onEdit, onDelete }) {
   const meta = PLANT_TYPES[plant.type] ?? { color: OFFLINE, label: plant.type }
   const isWeather = plant.type !== 'THERMAL'
   const { data: history } = usePlantHistory(plant.id, true)
@@ -349,6 +438,7 @@ function PlantView({ plant, onBack, onEdit, onDelete }) {
             <Stat label="Min output" value={mw(plant.minOutputMw)} />
             <Stat label="Base output" value={mw(plant.baseOutputMw)} />
             <Stat label="Value" value={rupees(plantCost(plant.type, plant.capacityMw))} />
+            <Stat label="Running cost" value={cost ? rupeesPerSec(cost.runningCostPerSecondRupees) : '—'} />
             <Stat label="Status" value={plant.active ? 'Active' : 'Inactive'} tone={plant.active ? 'positive' : undefined} />
           </StatGrid>
         </div>
@@ -413,7 +503,7 @@ function StorageView({ unit, onBack, onEdit, onDelete }) {
 
 // ---- Zone -------------------------------------------------------------------------------------
 
-function ZoneView({ zone, units, demand, capacity, onBack, onSelect, onAddUnit, onManageCapacities }) {
+function ZoneView({ zone, units, demand, capacity, revenue, unitRevenue, onBack, onSelect, onAddUnit, onManageCapacities }) {
   const [renaming, setRenaming] = useState(false)
   const upgradeZone = useUpgradeZone()
   const deleteZone = useDeleteZone()
@@ -483,6 +573,11 @@ function ZoneView({ zone, units, demand, capacity, onBack, onSelect, onAddUnit, 
               value={capacity ? kw(capacity.capacityKw) : 'Unmetered'}
               tone={over ? 'negative' : undefined}
             />
+            <Stat label="Revenue" value={revenue ? rupeesPerSec(revenue.revenuePerSecondRupees) : '—'} tone="positive" />
+            <Stat label="Billed so far" value={revenue ? rupees(revenue.totalRevenueRupees) : '—'} />
+            {revenue?.overagePerSecondRupees > 0 && (
+              <Stat label="Of which surcharge" value={rupeesPerSec(revenue.overagePerSecondRupees)} tone="negative" />
+            )}
           </StatGrid>
         </div>
 
@@ -501,6 +596,9 @@ function ZoneView({ zone, units, demand, capacity, onBack, onSelect, onAddUnit, 
                   <BuildingIcon type={u.type} size={18} />
                   <span className="max-w-24 truncate">{u.name}</span>
                   <span className="tabular-nums text-slate-400">{kw(u.demandKw)}</span>
+                  {unitRevenue.has(u.unitId) && (
+                    <span className="tabular-nums text-emerald-700">{rupeesPerSec(unitRevenue.get(u.unitId))}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -513,7 +611,7 @@ function ZoneView({ zone, units, demand, capacity, onBack, onSelect, onAddUnit, 
 
 // ---- Building ---------------------------------------------------------------------------------
 
-function UnitView({ unit, zone, onBack, onSelect, onEdit, onDelete }) {
+function UnitView({ unit, zone, revenue, zoneRevenue, onBack, onSelect, onEdit, onDelete }) {
   const meta = PROFILE_TYPES[unit.type] ?? { color: OFFLINE, label: unit.type }
   const pct = unit.capacityKw > 0 ? (unit.demandKw / unit.capacityKw) * 100 : 0
 
@@ -541,6 +639,11 @@ function UnitView({ unit, zone, onBack, onSelect, onEdit, onDelete }) {
           <Stat label="Demand now" value={kw(unit.demandKw)} />
           <Stat label="Rated capacity" value={kw(unit.capacityKw)} />
           <Stat label="Load" value={`${Math.round(pct)}%`} tone={pct >= 100 ? 'negative' : undefined} />
+          <Stat label="Revenue" value={revenue == null ? '—' : rupeesPerSec(revenue)} tone="positive" />
+          <Stat
+            label="Share of zone"
+            value={revenue == null || !(zoneRevenue > 0) ? '—' : `${Math.round((revenue / zoneRevenue) * 100)}%`}
+          />
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
             <p className="text-[10px] text-slate-400">Zone</p>
             <button
@@ -552,6 +655,9 @@ function UnitView({ unit, zone, onBack, onSelect, onEdit, onDelete }) {
             </button>
           </div>
         </StatGrid>
+        <p className="text-[11px] text-slate-400">
+          Billing is recorded per zone, so this is the zone's revenue split by this building's share of its demand.
+        </p>
       </div>
     </PanelShell>
   )
@@ -572,7 +678,16 @@ export default function DetailPanel({ selection, data, overview, actions }) {
   if (selection.kind === 'plant') {
     const plant = data.plants?.find((p) => p.id === selection.id)
     if (plant) {
-      view = <PlantView key={plant.id} plant={plant} onBack={back} onEdit={actions.onEditPlant} onDelete={actions.onDeletePlant} />
+      view = (
+        <PlantView
+          key={plant.id}
+          plant={plant}
+          cost={data.money.plantCost.get(plant.id)}
+          onBack={back}
+          onEdit={actions.onEditPlant}
+          onDelete={actions.onDeletePlant}
+        />
+      )
     }
   } else if (selection.kind === 'storage') {
     const unit = data.storageUnits?.find((s) => s.id === selection.id)
@@ -589,6 +704,8 @@ export default function DetailPanel({ selection, data, overview, actions }) {
           units={data.unitsByZone.get(zone.zoneId) ?? []}
           demand={data.demandByZone.get(zone.zoneId)}
           capacity={data.capacityByZone.get(zone.zoneId)}
+          revenue={data.money.zoneRevenue.get(zone.zoneId)}
+          unitRevenue={data.money.flow ? data.money.unitRevenue : NO_REVENUE}
           onBack={back}
           onSelect={actions.onSelect}
           onAddUnit={actions.onAddUnit}
@@ -604,6 +721,8 @@ export default function DetailPanel({ selection, data, overview, actions }) {
           key={unit.unitId}
           unit={unit}
           zone={data.zones?.find((z) => z.zoneId === unit.zoneId)}
+          revenue={data.money.flow ? data.money.unitRevenue.get(unit.unitId) : undefined}
+          zoneRevenue={data.money.zoneRevenue.get(unit.zoneId)?.revenuePerSecondRupees}
           onBack={back}
           onSelect={actions.onSelect}
           onEdit={actions.onEditUnit}

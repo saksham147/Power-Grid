@@ -75,3 +75,8 @@ export const purchaseStorage = (body) =>
 
 /** Revenue vs. spend, all time -- feeds the live scoreboard panel's "cost efficiency" figure. */
 export const getBillingSummary = () => request('/billing-api/billing/summary')
+
+/** Where money is moving right now: revenue per second by zone, each plant's running cost per
+ *  second, and lifetime plant spend by category -- see Billing.billing.MoneyFlowService. Rates are
+ *  averaged over a short wall-clock window server-side, so they don't jump tick to tick. */
+export const getMoneyFlow = () => request('/billing-api/billing/flow')
