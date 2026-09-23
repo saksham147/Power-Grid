@@ -50,6 +50,13 @@ producer:
     rollup-interval: 10m
     rollup-enabled: true
 
+  roster-sync:
+    # Re-announce every plant on producer.plants at startup and then this often, so Billing's
+    # mirror of the roster can always be rebuilt from the topic -- see
+    # Producer.kafka.PlantRosterSync. ISO-8601 (Duration), like Billing's own intervals.
+    enabled: true
+    interval: PT10M
+
   simulation:
     # Whether the grid.tick @KafkaListener auto-starts. Off in tests, so loading the context does
     # not consume real ticks from a real broker. The pace and the frequency deviation both come
