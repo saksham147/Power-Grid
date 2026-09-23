@@ -8,7 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import Producer.event.GridTickEvent;
 import Producer.event.StorageOutputEvent;
@@ -43,10 +43,13 @@ public class StorageCycleService {
 
     private final StorageUnitRepository repository;
     private final StorageOutputPublisher publisher;
+    private final TransactionTemplate transactionTemplate;
 
-    public StorageCycleService(StorageUnitRepository repository, StorageOutputPublisher publisher) {
+    public StorageCycleService(StorageUnitRepository repository, StorageOutputPublisher publisher,
+            TransactionTemplate transactionTemplate) {
         this.repository = repository;
         this.publisher = publisher;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @KafkaListener(topics = "grid.tick", containerFactory = "storageGridTickListenerContainerFactory",
@@ -61,8 +64,26 @@ public class StorageCycleService {
         }
     }
 
-    @Transactional
+    /**
+     * Runs the charge/discharge pass inside a transaction it opens itself, then publishes what it
+     * computed. A {@code @Transactional} annotation on this method would do nothing: {@link
+     * #onGridTick} calls it on {@code this}, which never passes through Spring's transaction proxy
+     * -- exactly how this once computed the right {@link StorageOutputEvent} for every tick (the
+     * physics ran correctly, in memory) while never actually charging or discharging a single unit
+     * in the database. {@code repository.findByActiveTrue()} is itself transactional (Spring Data
+     * JPA wraps every repository method), so without an outer transaction to join it opens and
+     * closes its own short one -- the {@link StorageUnit} entities it returns are detached the
+     * moment it returns, and mutating a detached entity's state of charge is invisible to
+     * Hibernate, with nothing to say so. See {@code Billing.billing.MaintenanceChargeJob#runOnce()}
+     * for the identical bug, found and fixed there first.
+     */
     List<StorageOutputEvent> handleTick(GridTickEvent tick) {
+        List<StorageOutputEvent> events = transactionTemplate.execute(status -> chargeAndDischarge(tick));
+        events.forEach(publisher::publish);
+        return events;
+    }
+
+    private List<StorageOutputEvent> chargeAndDischarge(GridTickEvent tick) {
         List<StorageUnit> units = repository.findByActiveTrue();
         List<StorageOutputEvent> events = new ArrayList<>(units.size());
         Instant timestamp = Instant.now();
@@ -72,7 +93,6 @@ public class StorageCycleService {
             events.add(new StorageOutputEvent(unit.getId(), tick.tickNumber(), netKw, timestamp));
         }
 
-        events.forEach(publisher::publish);
         return events;
     }
 
