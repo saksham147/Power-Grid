@@ -26,3 +26,7 @@ async function request(path) {
 }
 
 export const getGridStatus = () => request('/grid-api/grid/status')
+
+/** Oldest-first, one point per tick -- see Grid.api.GridHistoryController. */
+export const getGridHistory = ({ limit } = {}) =>
+  request(`/grid-api/grid/history${limit ? `?limit=${limit}` : ''}`)
