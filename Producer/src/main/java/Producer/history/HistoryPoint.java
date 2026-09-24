@@ -3,7 +3,7 @@ package Producer.history;
 import java.time.Instant;
 
 import Producer.model.GenerationRecord;
-import Producer.model.GenerationRollup;
+import Producer.model.GenerationRollupPoint;
 import Producer.simulation.SimulationClock;
 
 /**
@@ -49,10 +49,10 @@ public record HistoryPoint(
                 1, r.getTickNumber(), r.getTickNumber());
     }
 
-    static HistoryPoint of(GenerationRollup r) {
-        return new HistoryPoint(r.getBucketStart(), Resolution.ROLLUP,
-                r.getAvgOutputMw(), r.getMinOutputMw(), r.getMaxOutputMw(),
-                r.getEnergyMwh(),
-                r.getSampleCount(), r.getFirstTick(), r.getLastTick());
+    static HistoryPoint of(GenerationRollupPoint r) {
+        return new HistoryPoint(r.bucketStart(), Resolution.ROLLUP,
+                r.avgOutputMw(), r.minOutputMw(), r.maxOutputMw(),
+                r.energyMwh(),
+                r.sampleCount(), r.firstTick(), r.lastTick());
     }
 }

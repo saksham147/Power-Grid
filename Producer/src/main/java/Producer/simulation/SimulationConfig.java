@@ -5,13 +5,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
-import Producer.history.HistoryProperties;
-
 /**
  * Scheduling and configuration wiring for the simulation loop.
  */
 @Configuration
-@EnableConfigurationProperties({ SimulationProperties.class, HistoryProperties.class })
+@EnableConfigurationProperties(SimulationProperties.class)
 public class SimulationConfig {
 
     private static final int POOL_SIZE = 1;
