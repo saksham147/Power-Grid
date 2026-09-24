@@ -1,6 +1,7 @@
 package Producer.history;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -35,6 +36,14 @@ import Producer.model.GenerationRollupQuery;
  * to exactly that), but pinning the cutoff to the wall clock instead of the query's own inputs
  * would make this method's answer depend on when it happens to run rather than what it was asked,
  * and untestable with a fixed reference instant the way {@code rollUp(Instant now)} used to be.
+ *
+ * <p>
+ * The cutoff is also truncated to the minute, matching the aggregate's own per-minute buckets --
+ * without that, a minute whose bucket straddled the untruncated cutoff would be counted whole by
+ * the aggregate side while its later seconds were also counted by the raw side. The old rollup job
+ * truncated its own cutoff the same way, for the same reason (see {@code Billing.billing.
+ * UnlockService}'s own doc for the day-granularity version of this same bug, caught and measured
+ * there at roughly an 11% over-count before the fix).
  */
 @Component
 public class GenerationHistoryQuery {
@@ -50,7 +59,7 @@ public class GenerationHistoryQuery {
     /** Each source is limited to {@code limit} before the merge; the newest {@code limit} of the
      *  combined series is always within those. */
     public List<HistoryPoint> history(long plantId, Instant from, Instant to, int limit) {
-        Instant cutoff = to.minus(GenerationHypertableSetup.RAW_RETENTION);
+        Instant cutoff = to.minus(GenerationHypertableSetup.RAW_RETENTION).truncatedTo(ChronoUnit.MINUTES);
         Instant rawFrom = maxOf(from, cutoff);
         Instant rollupTo = minOf(to, cutoff);
 

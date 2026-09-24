@@ -5,7 +5,6 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 public interface BillingRecordRepository extends JpaRepository<BillingRecord, Long> {
@@ -17,24 +16,16 @@ public interface BillingRecordRepository extends JpaRepository<BillingRecord, Lo
     @Query("select r from BillingRecord r where r.zoneId = :zoneId order by r.recordedAt desc")
     List<BillingRecord> findByZone(String zoneId, Limit limit);
 
-    /**
-     * Bulk delete of everything at or before the cutoff tick. A single statement: no entity is
-     * loaded, which matters because a rollup run may cover thousands of rows.
-     */
-    @Modifying
-    @Query("delete from BillingRecord r where r.tickNumber < :cutoffTick")
-    int deleteBefore(long cutoffTick);
-
-    /** Highest tick number among raw rows, across every zone, or {@code null} if the table is empty. */
-    @Query("select max(r.tickNumber) from BillingRecord r")
-    Long findMaxTickNumber();
-
-    /** Every kWh billed across every zone, still raw (not yet rolled up) -- half of {@code
+    /** Every kWh billed across every zone since {@code cutoff} -- half of {@code
      *  Billing.billing.UnlockService}'s "cumulative energy sold, all time" figure, the other half
-     *  being {@link BillingDailyRollupRepository#sumTotalKwh()}. {@code coalesce} so an empty table
-     *  reports 0, not null. */
-    @Query("select coalesce(sum(r.kwh), 0) from BillingRecord r")
-    double sumKwh();
+     *  being {@link BillingRollupQuery#sumTotalKwhBefore}. {@code coalesce} so no matching rows
+     *  reports 0, not null. See {@code UnlockService}'s own doc for why this is windowed by a
+     *  cutoff now rather than summing the whole table unconditionally: raw rows and the
+     *  continuous aggregate they feed can now both hold the same tick at once (TimescaleDB's
+     *  retention and its aggregate refresh are two independent schedules, not one job moving a
+     *  row from here to there), so an unwindowed sum on both sides would double-count. */
+    @Query("select coalesce(sum(r.kwh), 0) from BillingRecord r where r.recordedAt >= :cutoff")
+    double sumKwhSince(Instant cutoff);
 
     /** One zone's billed revenue over a time window -- see {@link #sumRevenueSince}. */
     interface ZoneRevenueRow {

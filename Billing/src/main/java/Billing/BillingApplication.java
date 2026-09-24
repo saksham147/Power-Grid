@@ -6,7 +6,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-/** {@code @EnableScheduling} drives {@code Billing.history.BillingRollupJob}. */
+/** {@code @EnableScheduling} drives {@code Billing.billing.MaintenanceChargeJob}. */
 @SpringBootApplication
 @EnableScheduling
 public class BillingApplication {

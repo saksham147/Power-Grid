@@ -63,13 +63,11 @@ billing:
   # Whether the customer.demand @KafkaListener auto-starts. Off in tests, so loading the context
   # does not consume real events from a real broker.
   autostart: true
-  history:
-    # Simulated, not wall-clock, days -- see Billing.history.BillingRollupJob for why.
-    raw-retention-days: 15
-    # ISO-8601, not Boot's "10m" shorthand: this value is also fed straight into @Scheduled's
-    # fixedDelayString, whose Duration parsing is stricter than @ConfigurationProperties binding.
-    rollup-interval: PT10M
-    rollup-enabled: true
+  # No history config left here on purpose: billing_record is a TimescaleDB hypertable and
+  # billing_daily_rollup a continuous aggregate over it, bucketed by wall-clock day now, not
+  # simulated day (see Billing.model.BillingHypertableSetup for why). Both the 24h raw retention
+  # and the 10m aggregate refresh are policies on the database itself, set once via SQL by that
+  # component, not application config.
 
 logging:
   level:
