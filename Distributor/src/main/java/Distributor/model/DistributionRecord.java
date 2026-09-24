@@ -19,6 +19,13 @@ import jakarta.persistence.Table;
  * not a tick-wide batch of many plants -- so a plain {@code JpaRepository.save} per event is
  * already a single round trip, and there is no identity-batching concern to work around with a
  * hand-rolled JDBC writer.
+ *
+ * <p>
+ * The primary key below is single-column -- that's Hibernate's starting point on a fresh database,
+ * not the final shape. {@link DistributionHypertableSetup} replaces it with a composite version
+ * that includes {@code recorded_at} (TimescaleDB requires the partitioning column in every unique
+ * constraint on a hypertable) the first time it runs. {@code id} stays the JPA {@code @Id}
+ * regardless -- only the database-level constraint shape changes.
  */
 @Entity
 @Table(name = "distribution_record", indexes = {
