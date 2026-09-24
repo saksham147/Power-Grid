@@ -19,23 +19,8 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
     @Query("select coalesce(sum(t.amountRupees), 0) from WalletTransaction t where t.type in :types")
     double sumByTypes(Collection<TransactionType> types);
 
-    /** One (wallet, transaction type) pair's lifetime total -- see {@link #totalsByZoneAndType}. */
-    interface TransactionTotalRow {
-        String getZoneId();
-
-        TransactionType getType();
-
-        double getAmountRupees();
-    }
-
-    /**
-     * Every wallet's lifetime total per transaction type, in one pass over the ledger. Feeds both
-     * halves of {@code Billing.billing.MoneyFlowService}'s all-time figures -- revenue per zone
-     * (the {@code BILL_DEBIT} rows) and fleet spend by category (the plant/storage rows) -- so the
-     * endpoint scans the table once, not once per figure.
-     */
-    @Query("""
-            select t.zoneId as zoneId, t.type as type, sum(t.amountRupees) as amountRupees
-            from WalletTransaction t group by t.zoneId, t.type""")
-    List<TransactionTotalRow> totalsByZoneAndType();
+    // The old totalsByZoneAndType() projection query -- a full-table group by zone_id, type over
+    // the entire ledger, run fresh on every MoneyFlowService poll -- moved to
+    // Billing.model.WalletTotalsQuery, backed by the wallet_daily_totals continuous aggregate. See
+    // Billing.model.WalletTransactionHypertableSetup for why.
 }

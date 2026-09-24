@@ -17,9 +17,17 @@ import jakarta.persistence.Table;
  * edited.
  *
  * <p>
- * Kept for {@code producer.history.raw-retention}, then compressed into
- * {@link GenerationRollup}
- * rows by {@code GenerationRollupJob}.
+ * Kept for {@link GenerationHypertableSetup#RAW_RETENTION}, then dropped by a TimescaleDB
+ * retention policy -- the underlying table is a hypertable, and the older figures live on in
+ * {@link GenerationRollupPoint}, a continuous aggregate over it, not a second table a scheduled
+ * job copies rows into.
+ *
+ * <p>
+ * The single-column primary key below is Hibernate's starting point on a fresh database, not the
+ * final shape: {@link GenerationHypertableSetup} widens it to a composite one including {@code
+ * recorded_at} the first time it runs, since {@code create_hypertable} refuses a table whose
+ * unique constraints don't include the partitioning column. {@code id} stays the JPA {@code @Id}
+ * regardless -- only the database-level constraint shape changes.
  *
  * <h2>Why these rows are not inserted through JPA</h2>
  *

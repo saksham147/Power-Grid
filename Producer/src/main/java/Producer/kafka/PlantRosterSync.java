@@ -32,10 +32,10 @@ import Producer.model.PowerPlantRepository;
  * handful of tiny messages every few minutes costs nothing.
  *
  * <p>
- * Runs on the same single-thread scheduler {@link Producer.history.GenerationRollupJob} does,
- * for the same reason -- it is one more small periodic job, not worth a scheduler of its own --
- * and starts on {@code ApplicationReadyEvent} with an immediate first run, so a fresh start
- * announces the roster straight away rather than after a full interval.
+ * Runs on the shared single-thread scheduler {@code SimulationConfig} provides -- one more small
+ * periodic job, not worth a scheduler of its own -- and starts on {@code ApplicationReadyEvent}
+ * with an immediate first run, so a fresh start announces the roster straight away rather than
+ * after a full interval.
  */
 @Component
 public class PlantRosterSync {

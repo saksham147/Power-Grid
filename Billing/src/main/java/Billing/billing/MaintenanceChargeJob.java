@@ -18,10 +18,11 @@ import Billing.model.WalletTransactionRepository;
 
 /**
  * Charges the shared Grid wallet a recurring upkeep cost for every active plant, on top of
- * whatever the plant already cost to build. Mirrors {@code Billing.history.BillingRollupJob}'s
- * {@code @Scheduled} shape: an ISO-8601 interval string, an {@code enabled} guard, try/catch-swallow
- * so one bad run doesn't cancel the schedule, and a {@link TransactionTemplate} to run the charge
- * in a transaction (see {@link #runOnce()} for why an annotation would not).
+ * whatever the plant already cost to build. Mirrors {@code Distributor.history.
+ * DistributionRollupJob}'s {@code @Scheduled} shape: an ISO-8601 interval string, an {@code
+ * enabled} guard, try/catch-swallow so one bad run doesn't cancel the schedule, and a {@link
+ * TransactionTemplate} to run the charge in a transaction (see {@link #runOnce()} for why an
+ * annotation would not).
  *
  * <p>
  * This is a mandatory charge, not a voluntary spend -- a plant can't be "not maintained" to avoid
@@ -61,7 +62,8 @@ public class MaintenanceChargeJob {
      * passes through Spring's transaction proxy. That is exactly how this job once wrote its ledger
      * rows without ever changing the wallet balance -- the wallet was loaded outside any
      * transaction, debited in memory, and the change was never flushed. {@code
-     * Billing.history.BillingRollupJob} uses a {@link TransactionTemplate} for the same reason.
+     * Distributor.history.DistributionRollupJob} uses a {@link TransactionTemplate} for the same
+     * reason.
      */
     double runOnce() {
         Double charged = transactionTemplate.execute(status -> chargeUpkeep());
@@ -88,8 +90,8 @@ public class MaintenanceChargeJob {
         return totalCost;
     }
 
-    /** No {@code initialDelay}: matches {@code BillingRollupJob}'s "don't wait out a full interval
-     *  before the first charge" reasoning. */
+    /** No {@code initialDelay}: matches {@code DistributionRollupJob}'s "don't wait out a full
+     *  interval before the first charge" reasoning. */
     @Scheduled(fixedDelayString = "${billing.maintenance.interval:PT10M}")
     void runScheduled() {
         if (!enabled) {

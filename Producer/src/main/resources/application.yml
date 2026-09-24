@@ -41,14 +41,12 @@ spring:
       auto-offset-reset: latest
 
 producer:
-  history:
-    # Raw per-tick rows are kept this long, then compressed into one row per plant per
-    # real minute -- exactly one simulated hour, which keeps the daily solar curve.
-    raw-retention: 24h
-    # How often the rollup runs. Each run moves only what has aged past raw-retention
-    # since the last one, so batches stay small and a missed run simply catches up.
-    rollup-interval: 10m
-    rollup-enabled: true
+  # No history config left here on purpose: generation_record is a TimescaleDB hypertable and
+  # generation_rollup a continuous aggregate over it (one row per plant per real minute -- exactly
+  # one simulated hour, which keeps the daily solar curve). Both the 24h raw retention and the 10m
+  # aggregate refresh are policies on the database itself, set once via SQL by
+  # Producer.model.GenerationHypertableSetup (see Producer.model.GenerationHypertableSetup#RAW_RETENTION
+  # for the single source of truth on the retention window), not application config.
 
   roster-sync:
     # Re-announce every plant on producer.plants at startup and then this often, so Billing's

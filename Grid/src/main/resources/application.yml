@@ -75,14 +75,11 @@ grid:
     resume-attempts: 10
     resume-retry-delay: PT3S
 
-  history:
-    # Wall-clock, not simulated-day, retention -- like Producer's own raw generation history, this
-    # is for a live chart, not long-term accounting, so there is no rollup tier keeping older data
-    # in a compressed form the way Billing/Distributor need for cost totals. A row aged past this
-    # is just deleted. ISO-8601 (Duration).
-    raw-retention: 24h
-    prune-interval: 10m
-    prune-enabled: true
+  # No history config left here on purpose: `grid.tick_record` is a TimescaleDB hypertable now,
+  # and its 24h retention is a policy on the database itself (`add_retention_policy`, set once via
+  # SQL -- see the migration note on the `postgres` service in docker-compose.yml), not application
+  # config. This used to be a Spring @Scheduled prune job (`grid.history.raw-retention` /
+  # `prune-interval` / `prune-enabled`); TimescaleDB's own background worker replaced it outright.
 
 logging:
   level:

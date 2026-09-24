@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.within;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -14,7 +15,9 @@ import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import Producer.event.GridTickEvent;
@@ -23,43 +26,53 @@ import Producer.generation.GenerationService;
 import Producer.kafka.ProducerOutputPublisher;
 import Producer.model.GenerationRecord;
 import Producer.model.GenerationRecordRepository;
-import Producer.model.GenerationRollup;
-import Producer.model.GenerationRollupRepository;
+import Producer.model.GenerationRollupPoint;
+import Producer.model.GenerationRollupQuery;
 import Producer.model.PlantType;
 import Producer.model.PowerPlant;
 import Producer.model.PowerPlantRepository;
 import jakarta.persistence.EntityManagerFactory;
 
 /**
- * Generation history against real Postgres.
+ * Generation history against real Postgres (TimescaleDB, specifically -- {@code
+ * GenerationHypertableSetup} runs against this test's own schema exactly like it does against the
+ * real one).
  *
  * <p>
- * Real Postgres, not an embedded substitute: {@code date_trunc}, identity columns,
- * JDBC batching and
- * transaction sharing between JPA and {@code JdbcTemplate} are exactly the
- * behaviour under test, and
- * an embedded database would not reproduce them.
+ * Real Postgres, not an embedded substitute: {@code time_bucket}, identity columns, JDBC batching,
+ * transaction sharing between JPA and {@code JdbcTemplate}, and TimescaleDB's own hypertable and
+ * continuous-aggregate machinery are exactly the behaviour under test, and an embedded database
+ * would not reproduce any of it.
  *
  * <p>
- * Isolated in its own {@code producer_test} schema, because these tests delete
- * rows -- run against
- * the real {@code producer} schema, the rollup test would compress and delete real
- * history. Kafka
- * publishing is mocked so a tick emits nothing, and both background loops are off
- * so nothing ticks
- * or rolls up underneath the assertions.
+ * Isolated in its own {@code producer_test} schema, because these tests delete rows -- run against
+ * the real {@code producer} schema, they would delete real history. Kafka publishing is mocked so
+ * a tick emits nothing, and both background loops are off so nothing ticks or refreshes the
+ * aggregate underneath the assertions -- refreshing it is this test's own job now, done explicitly
+ * with {@code CALL refresh_continuous_aggregate}, since there is no more scheduled job object to
+ * call directly the way {@code GenerationRollupJob.rollUp(now)} used to be called.
+ *
+ * <h2>What moved out of this file</h2>
+ *
+ * The old suite re-verified the rollup job's own bucketing, its exact-energy-preservation, its
+ * idempotent re-run, and its cutoff-truncation-to-the-minute -- all now TimescaleDB's own
+ * guarantees, not this project's code to re-prove. What replaced them: {@code
+ * continuousAggregateSummarisesRawRowsAfterARefresh} (the aggregate's numbers are right) and
+ * {@code historyRoutesRecentRowsToRawAndOlderRowsToTheAggregate} (this project's own new logic --
+ * {@link GenerationHistoryQuery} picking the right source for a given time range -- is right).
  */
 @SpringBootTest(properties = {
         "spring.jpa.properties.hibernate.default_schema=producer_test",
         "spring.jpa.properties.hibernate.generate_statistics=true",
         "producer.simulation.autostart=false",
-        "producer.history.rollup-enabled=false",
         "producer.roster-sync.enabled=false"
 })
 class GenerationHistoryTests {
 
-    /** Mid-minute on purpose: the default 24 h retention puts the cutoff at 12:00:30 yesterday. */
+    /** Well within the 24h raw-retention window, so rows at this instant are always read as raw. */
     private static final Instant NOW = Instant.parse("2026-09-13T12:00:30Z");
+    /** Well before it -- any row at this instant only exists (once refreshed) in the aggregate. */
+    private static final Instant LONG_AGO = Instant.parse("2026-09-01T09:15:00Z");
 
     @MockitoBean
     private ProducerOutputPublisher publisher;
@@ -67,23 +80,28 @@ class GenerationHistoryTests {
     @Autowired
     private GenerationService generationService;
     @Autowired
-    private GenerationRollupJob rollupJob;
-    @Autowired
     private GenerationHistoryQuery historyQuery;
+    @Autowired
+    private GenerationRollupQuery rollupQuery;
     @Autowired
     private PowerPlantRepository plants;
     @Autowired
     private GenerationRecordRepository records;
     @Autowired
-    private GenerationRollupRepository rollups;
+    private JdbcTemplate jdbc;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Value("${spring.jpa.properties.hibernate.default_schema}")
+    private String schema;
 
     @BeforeEach
     void cleanSchema() {
-        rollups.deleteAll();
         records.deleteAll();
         plants.deleteAll();
+        // A continuous aggregate isn't written to directly (no deleteAll to call) -- refreshing a
+        // window wide enough to cover every instant any test in this file uses recomputes it from
+        // whatever the source table holds right now, which cleanSchema just made "nothing".
+        refreshRollup(Instant.parse("2020-01-01T00:00:00Z"), Instant.parse("2030-01-01T00:00:00Z"));
     }
 
     // ---------------------------------------------------------------- the write path
@@ -116,11 +134,9 @@ class GenerationHistoryTests {
     }
 
     /**
-     * History is inserted by one JDBC batch, not by Hibernate, so a tick's Hibernate
-     * statement count
-     * must not grow with the fleet. Were the inserts going through JPA with an
-     * identity id they
-     * would be one statement per plant; here a ten-fold larger fleet costs the same.
+     * History is inserted by one JDBC batch, not by Hibernate, so a tick's Hibernate statement
+     * count must not grow with the fleet. Were the inserts going through JPA with an identity id
+     * they would be one statement per plant; here a ten-fold larger fleet costs the same.
      */
     @Test
     void aTicksWriteCostDoesNotGrowWithTheFleet() {
@@ -135,12 +151,10 @@ class GenerationHistoryTests {
     }
 
     /**
-     * The claim the JDBC writer depends on: it joins the tick's JPA transaction rather
-     * than committing
-     * on its own. A tick that fails after its history insert must leave neither the
-     * history rows nor
-     * the plant's updated energy behind -- otherwise history and current state could
-     * disagree.
+     * The claim the JDBC writer depends on: it joins the tick's JPA transaction rather than
+     * committing on its own. A tick that fails after its history insert must leave neither the
+     * history rows nor the plant's updated energy behind -- otherwise history and current state
+     * could disagree.
      */
     @Test
     void aFailedTickRollsBackItsHistoryAndItsWriteBackTogether() {
@@ -158,7 +172,6 @@ class GenerationHistoryTests {
     }
 
     private long hibernateStatementsForATickOf(int plantCount) {
-        rollups.deleteAll();
         records.deleteAll();
         plants.deleteAll();
         List<PowerPlant> fleet = new ArrayList<>();
@@ -173,88 +186,35 @@ class GenerationHistoryTests {
         return stats.getPrepareStatementCount();
     }
 
-    // ---------------------------------------------------------------- the rollup
+    // ---------------------------------------------------------------- the continuous aggregate
 
+    /** Energy is additive, so the aggregate must preserve it exactly -- the claim that matters
+     *  most, same as it did for the old rollup job's own version of this test. */
     @Test
-    void rollupSummarisesOldMinutesExactlyAndLeavesRecentRowsRaw() {
+    void continuousAggregateSummarisesRawRowsAfterARefresh() {
         long plantId = 7;
-        Instant oldMinuteA = Instant.parse("2026-09-11T09:15:00Z");
-        Instant oldMinuteB = Instant.parse("2026-09-11T09:16:00Z");
-        double[] outputsA = rampFrom(100);
-        double[] outputsB = rampFrom(250);
+        Instant minute = LONG_AGO;
+        double[] outputs = rampFrom(100);
+        records.saveAll(minuteOfTicks(plantId, minute, 1, outputs));
 
-        records.saveAll(minuteOfTicks(plantId, oldMinuteA, 1, outputsA));
-        records.saveAll(minuteOfTicks(plantId, oldMinuteB, 13, outputsB));
-        List<GenerationRecord> recent = minuteOfTicks(plantId, NOW.minus(Duration.ofHours(1)), 500, rampFrom(400));
-        records.saveAll(recent);
+        refreshRollup(minute.minusSeconds(60), minute.plusSeconds(120));
 
-        RollupResult result = rollupJob.rollUp(NOW);
-
-        assertThat(result.bucketsWritten()).isEqualTo(2);
-        assertThat(result.rawDeleted()).isEqualTo(24);
-
-        List<GenerationRollup> buckets = rollups.findAll().stream()
-                .sorted(Comparator.comparing(GenerationRollup::getBucketStart)).toList();
-        assertBucket(buckets.get(0), oldMinuteA, outputsA, 1, 12);
-        assertBucket(buckets.get(1), oldMinuteB, outputsB, 13, 24);
-
-        // Nothing inside the retention window moved.
-        assertThat(records.count()).isEqualTo(recent.size());
-    }
-
-    /** Energy is additive, so compression must preserve it -- this is the claim that matters most. */
-    @Test
-    void rollupPreservesTotalEnergyExactly() {
-        Instant minute = Instant.parse("2026-09-10T03:42:00Z");
-        double[] outputs = { 0.0, 12.5, 88.25, 143.0, 199.75, 201.125, 176.0, 90.5, 44.0, 7.25, 0.0, 0.0 };
-        records.saveAll(minuteOfTicks(3, minute, 1, outputs));
-
-        double rawEnergy = 0;
-        for (double mw : outputs) {
-            rawEnergy += mw * 5 / 60.0;
-        }
-
-        rollupJob.rollUp(NOW);
-
-        assertThat(rollups.findAll().getFirst().getEnergyMwh()).isCloseTo(rawEnergy, within(1e-9));
+        List<GenerationRollupPoint> buckets = rollupQuery.findHistory(
+                plantId, minute.minusSeconds(60), minute.plusSeconds(120), 10);
+        assertThat(buckets).hasSize(1);
+        assertBucket(buckets.getFirst(), minute, outputs, 1, 12);
     }
 
     @Test
-    void runningTheRollupTwiceChangesNothingTheSecondTime() {
-        records.saveAll(minuteOfTicks(1, Instant.parse("2026-09-11T01:00:00Z"), 1, rampFrom(50)));
+    void aSecondRefreshOfTheSameWindowChangesNothing() {
+        long plantId = 3;
+        records.saveAll(minuteOfTicks(plantId, LONG_AGO, 1, rampFrom(50)));
+        refreshRollup(LONG_AGO.minusSeconds(60), LONG_AGO.plusSeconds(120));
 
-        rollupJob.rollUp(NOW);
-        long bucketsAfterFirst = rollups.count();
+        refreshRollup(LONG_AGO.minusSeconds(60), LONG_AGO.plusSeconds(120));
 
-        RollupResult second = rollupJob.rollUp(NOW);
-
-        assertThat(second.bucketsWritten()).isZero();
-        assertThat(second.rawDeleted()).isZero();
-        assertThat(rollups.count()).isEqualTo(bucketsAfterFirst);
-    }
-
-    /**
-     * NOW - 24h is 12:00:30. Without truncation, the rows at 12:00:10 and 12:00:20
-     * would be rolled
-     * now and the rest of that minute later, writing two rows for one minute. The
-     * cutoff truncates
-     * to 12:00:00, so the whole minute stays raw until it is complete.
-     */
-    @Test
-    void aCutoffMidMinuteLeavesThatWholeMinuteRaw() {
-        Instant cutoffMinute = Instant.parse("2026-09-12T12:00:00Z");
-        Instant priorMinute = Instant.parse("2026-09-12T11:59:00Z");
-
-        records.saveAll(List.of(
-                new GenerationRecord(1, PlantType.THERMAL, 1, 100, 0, priorMinute.plusSeconds(10)),
-                new GenerationRecord(1, PlantType.THERMAL, 2, 100, 0, cutoffMinute.plusSeconds(10)),
-                new GenerationRecord(1, PlantType.THERMAL, 3, 100, 0, cutoffMinute.plusSeconds(20))));
-
-        RollupResult result = rollupJob.rollUp(NOW);
-
-        assertThat(result.cutoff()).isEqualTo(cutoffMinute);
-        assertThat(rollups.findAll()).extracting(GenerationRollup::getBucketStart).containsExactly(priorMinute);
-        assertThat(records.findAll()).extracting(GenerationRecord::getTickNumber).containsExactlyInAnyOrder(2L, 3L);
+        assertThat(rollupQuery.findHistory(plantId, LONG_AGO.minusSeconds(60), LONG_AGO.plusSeconds(120), 10))
+                .hasSize(1);
     }
 
     // ---------------------------------------------------------------- lifecycle and reads
@@ -271,15 +231,20 @@ class GenerationHistoryTests {
         assertThat(records.findAll()).extracting(GenerationRecord::getPlantId).containsExactly(id);
     }
 
+    /**
+     * The new split this class's own doc explains: a range spanning both the raw-retention window
+     * and further back must come back as raw points for the recent slice and aggregate points for
+     * the older one, with nothing counted twice at the boundary.
+     */
     @Test
-    void historyMergesRawAndRolledUpPointsNewestFirst() {
+    void historyRoutesRecentRowsToRawAndOlderRowsToTheAggregate() {
         long plantId = 42;
-        records.saveAll(minuteOfTicks(plantId, Instant.parse("2026-09-11T08:00:00Z"), 1, rampFrom(60)));
-        rollupJob.rollUp(NOW);
+        records.saveAll(minuteOfTicks(plantId, LONG_AGO, 1, rampFrom(60)));
+        refreshRollup(LONG_AGO.minusSeconds(60), LONG_AGO.plusSeconds(120));
         records.saveAll(minuteOfTicks(plantId, NOW.minus(Duration.ofMinutes(5)), 900, rampFrom(300)));
 
         List<HistoryPoint> points = historyQuery.history(plantId,
-                NOW.minus(Duration.ofDays(3)), NOW, 100);
+                LONG_AGO.minusSeconds(60), NOW, 100);
 
         assertThat(points).hasSize(13);
         assertThat(points).isSortedAccordingTo(Comparator.comparing(HistoryPoint::at).reversed());
@@ -298,6 +263,15 @@ class GenerationHistoryTests {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /** Stands in for the old {@code GenerationRollupJob.rollUp(now)} call: recomputes the
+     *  aggregate for exactly the given window from whatever {@code generation_record} currently
+     *  holds. Real TimescaleDB deployments do this on a background policy; a test wants it to
+     *  happen synchronously and only for the window it just wrote. */
+    private void refreshRollup(Instant from, Instant to) {
+        jdbc.execute("call refresh_continuous_aggregate('" + schema + ".generation_rollup', '"
+                + from.atOffset(ZoneOffset.UTC) + "', '" + to.atOffset(ZoneOffset.UTC) + "')");
+    }
 
     /** Twelve ticks, five real seconds apart -- one real minute, one simulated hour. */
     private static List<GenerationRecord> minuteOfTicks(long plantId, Instant minuteStart, long firstTick,
@@ -318,7 +292,7 @@ class GenerationHistoryTests {
         return outputs;
     }
 
-    private static void assertBucket(GenerationRollup bucket, Instant start, double[] outputs,
+    private static void assertBucket(GenerationRollupPoint bucket, Instant start, double[] outputs,
             long firstTick, long lastTick) {
         double sum = 0;
         double min = Double.MAX_VALUE;
@@ -329,13 +303,13 @@ class GenerationHistoryTests {
             max = Math.max(max, mw);
         }
 
-        assertThat(bucket.getBucketStart()).isEqualTo(start);
-        assertThat(bucket.getSampleCount()).isEqualTo(12);
-        assertThat(bucket.getAvgOutputMw()).isCloseTo(sum / outputs.length, within(1e-9));
-        assertThat(bucket.getMinOutputMw()).isEqualTo(min);
-        assertThat(bucket.getMaxOutputMw()).isEqualTo(max);
-        assertThat(bucket.getEnergyMwh()).isCloseTo(sum * 5 / 60.0, within(1e-9));
-        assertThat(bucket.getFirstTick()).isEqualTo(firstTick);
-        assertThat(bucket.getLastTick()).isEqualTo(lastTick);
+        assertThat(bucket.bucketStart()).isEqualTo(start);
+        assertThat(bucket.sampleCount()).isEqualTo(12);
+        assertThat(bucket.avgOutputMw()).isCloseTo(sum / outputs.length, within(1e-9));
+        assertThat(bucket.minOutputMw()).isEqualTo(min);
+        assertThat(bucket.maxOutputMw()).isEqualTo(max);
+        assertThat(bucket.energyMwh()).isCloseTo(sum * 5 / 60.0, within(1e-9));
+        assertThat(bucket.firstTick()).isEqualTo(firstTick);
+        assertThat(bucket.lastTick()).isEqualTo(lastTick);
     }
 }

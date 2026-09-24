@@ -17,8 +17,8 @@ import org.mockito.ArgumentCaptor;
 import Billing.model.BillingRecordRepository;
 import Billing.model.BillingRecordRepository.ZoneRevenueRow;
 import Billing.model.TransactionType;
-import Billing.model.WalletTransactionRepository;
-import Billing.model.WalletTransactionRepository.TransactionTotalRow;
+import Billing.model.WalletTotalsQuery;
+import Billing.model.WalletZoneTypeTotal;
 
 /**
  * The per-second arithmetic and the lifetime totals: revenue is a real billed window divided by
@@ -30,16 +30,16 @@ class MoneyFlowServiceTests {
     private static final Instant NOW = Instant.parse("2026-01-01T12:00:00Z");
 
     private final BillingRecordRepository billingRecords = mock(BillingRecordRepository.class);
-    private final WalletTransactionRepository transactions = mock(WalletTransactionRepository.class);
+    private final WalletTotalsQuery totals = mock(WalletTotalsQuery.class);
     private final PlantRosterCache roster = mock(PlantRosterCache.class);
 
     private MoneyFlowService service(boolean maintenanceEnabled) {
-        return new MoneyFlowService(billingRecords, transactions, roster, Duration.ofSeconds(60),
+        return new MoneyFlowService(billingRecords, totals, roster, Duration.ofSeconds(60),
                 Duration.ofMinutes(10), maintenanceEnabled);
     }
 
-    // Plain implementations of the projection interfaces, not mocks: building a mock inside another
-    // mock's `given(...)` call trips Mockito's "unfinished stubbing" check.
+    // A plain implementation of the projection interface, not a mock: building a mock inside
+    // another mock's `given(...)` call trips Mockito's "unfinished stubbing" check.
     private record RevenueRow(String zoneId, String zoneName, double cost, double overage) implements ZoneRevenueRow {
         @Override
         public String getZoneId() {
@@ -62,29 +62,15 @@ class MoneyFlowServiceTests {
         }
     }
 
-    private record TotalRow(String zoneId, TransactionType type, double amount) implements TransactionTotalRow {
-        @Override
-        public String getZoneId() {
-            return zoneId;
-        }
-
-        @Override
-        public TransactionType getType() {
-            return type;
-        }
-
-        @Override
-        public double getAmountRupees() {
-            return amount;
-        }
-    }
-
     private static ZoneRevenueRow revenue(String zoneId, String name, double cost, double overage) {
         return new RevenueRow(zoneId, name, cost, overage);
     }
 
-    private static TransactionTotalRow total(String zoneId, TransactionType type, double amount) {
-        return new TotalRow(zoneId, type, amount);
+    // WalletZoneTypeTotal is a plain record now (WalletTotalsQuery reads it off a continuous
+    // aggregate view via JdbcTemplate, not a Spring Data projection), so tests construct it
+    // directly -- no implementing wrapper record needed the way TotalRow used to provide one.
+    private static WalletZoneTypeTotal total(String zoneId, TransactionType type, double amount) {
+        return new WalletZoneTypeTotal(zoneId, type, amount);
     }
 
     @Test
@@ -93,7 +79,7 @@ class MoneyFlowServiceTests {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of(
                 revenue("Z-A", "North", 6000.0, 0.0),
                 revenue("Z-B", "East", 3000.0, 600.0)));
-        given(transactions.totalsByZoneAndType()).willReturn(List.of(
+        given(totals.totalsByZoneAndType()).willReturn(List.of(
                 total("Z-A", TransactionType.BILL_DEBIT, 90000.0),
                 total("Z-B", TransactionType.BILL_DEBIT, 45000.0)));
         given(roster.allPlants()).willReturn(List.of());
@@ -111,7 +97,7 @@ class MoneyFlowServiceTests {
     @Test
     void theWindowIsMeasuredBackFromNow() {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of());
+        given(totals.totalsByZoneAndType()).willReturn(List.of());
         given(roster.allPlants()).willReturn(List.of());
 
         service(true).compute(NOW);
@@ -125,7 +111,7 @@ class MoneyFlowServiceTests {
     void aZoneWithNoRecentChargeStaysListedAtZeroPerSecond() {
         // Billed in the past (lifetime total), nothing in the last window: demand fell to zero.
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of(
+        given(totals.totalsByZoneAndType()).willReturn(List.of(
                 total("Z-A", TransactionType.BILL_DEBIT, 5000.0)));
         given(roster.allPlants()).willReturn(List.of());
 
@@ -143,7 +129,7 @@ class MoneyFlowServiceTests {
     void plantRunningCostIsTheMaintenanceCycleSpreadOverItsInterval() {
         // Thermal 900MW @ 30/MW = 27000 per 600s cycle = 45/s; Wind 150MW @ 15/MW = 2250 -> 3.75/s.
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of());
+        given(totals.totalsByZoneAndType()).willReturn(List.of());
         given(roster.allPlants()).willReturn(List.of(
                 new PlantRosterCache.PlantSnapshot(2L, PlantType.WIND, 150.0, true),
                 new PlantRosterCache.PlantSnapshot(1L, PlantType.THERMAL, 900.0, true)));
@@ -159,7 +145,7 @@ class MoneyFlowServiceTests {
     @Test
     void anInactivePlantIsListedButOwesNoUpkeep() {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of());
+        given(totals.totalsByZoneAndType()).willReturn(List.of());
         given(roster.allPlants()).willReturn(List.of(
                 new PlantRosterCache.PlantSnapshot(1L, PlantType.THERMAL, 900.0, false)));
 
@@ -175,7 +161,7 @@ class MoneyFlowServiceTests {
     @Test
     void aDisabledMaintenanceJobMeansNoRunningCost() {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of());
+        given(totals.totalsByZoneAndType()).willReturn(List.of());
         given(roster.allPlants()).willReturn(List.of(
                 new PlantRosterCache.PlantSnapshot(1L, PlantType.THERMAL, 900.0, true)));
 
@@ -185,7 +171,7 @@ class MoneyFlowServiceTests {
     @Test
     void netIsRevenueMinusPlantRunningCost() {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of(revenue("Z-A", "North", 600.0, 0.0)));
-        given(transactions.totalsByZoneAndType()).willReturn(List.of(
+        given(totals.totalsByZoneAndType()).willReturn(List.of(
                 total("Z-A", TransactionType.BILL_DEBIT, 600.0)));
         given(roster.allPlants()).willReturn(List.of(
                 new PlantRosterCache.PlantSnapshot(1L, PlantType.THERMAL, 100.0, true)));
@@ -199,7 +185,7 @@ class MoneyFlowServiceTests {
     @Test
     void lifetimeSpendIsGroupedByCategoryAndRefundsComeOffTheNet() {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of(
+        given(totals.totalsByZoneAndType()).willReturn(List.of(
                 total("GRID", TransactionType.PLANT_PURCHASE, 10000.0),
                 total("GRID", TransactionType.PLANT_UPGRADE, 2000.0),
                 total("GRID", TransactionType.PLANT_MAINTENANCE, 3000.0),
@@ -222,7 +208,7 @@ class MoneyFlowServiceTests {
     @Test
     void anEmptyLedgerYieldsAllZeros() {
         given(billingRecords.sumRevenueSince(any())).willReturn(List.of());
-        given(transactions.totalsByZoneAndType()).willReturn(List.of());
+        given(totals.totalsByZoneAndType()).willReturn(List.of());
         given(roster.allPlants()).willReturn(List.of());
 
         MoneyFlow flow = service(true).compute(NOW);
