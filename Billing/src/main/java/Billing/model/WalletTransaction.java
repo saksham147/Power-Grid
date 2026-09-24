@@ -19,6 +19,15 @@ import jakarta.persistence.Table;
  * source of transactions so far, but a future non-billing debit (spending the wallet on a new
  * plant) will have a transaction with no billing record behind it -- keeping them separate now
  * avoids having to split them apart later.
+ *
+ * <p>
+ * The primary key below is single-column -- that's Hibernate's starting point on a fresh database,
+ * not the final shape. {@link WalletTransactionHypertableSetup} replaces it with a composite
+ * version that includes {@code occurred_at} (TimescaleDB requires the partitioning column in every
+ * unique constraint on a hypertable) the first time it runs. {@code id} stays the JPA {@code @Id}
+ * regardless -- only the database-level constraint shape changes. Unlike every other hypertabled
+ * table in this project, no retention policy is ever added to this one -- see that class's own doc
+ * for why: this is the ledger, and nothing here is ever pruned.
  */
 @Entity
 @Table(name = "wallet_transaction", indexes = @Index(name = "ix_wallet_transaction_zone_time", columnList = "zone_id, occurred_at"))

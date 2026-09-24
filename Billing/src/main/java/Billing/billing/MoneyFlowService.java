@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
 import Billing.model.BillingRecordRepository;
 import Billing.model.BillingRecordRepository.ZoneRevenueRow;
 import Billing.model.TransactionType;
-import Billing.model.WalletTransactionRepository;
-import Billing.model.WalletTransactionRepository.TransactionTotalRow;
+import Billing.model.WalletTotalsQuery;
+import Billing.model.WalletZoneTypeTotal;
 
 /**
  * Works out the money-per-second picture the dashboard shows: revenue per zone, the plant fleet's
@@ -46,19 +46,19 @@ import Billing.model.WalletTransactionRepository.TransactionTotalRow;
 public class MoneyFlowService {
 
     private final BillingRecordRepository billingRecords;
-    private final WalletTransactionRepository transactions;
+    private final WalletTotalsQuery totals;
     private final PlantRosterCache roster;
     private final Duration window;
     private final Duration maintenanceInterval;
     private final boolean maintenanceEnabled;
 
-    public MoneyFlowService(BillingRecordRepository billingRecords, WalletTransactionRepository transactions,
+    public MoneyFlowService(BillingRecordRepository billingRecords, WalletTotalsQuery totals,
             PlantRosterCache roster,
             @Value("${billing.flow.window:PT60S}") Duration window,
             @Value("${billing.maintenance.interval:PT10M}") Duration maintenanceInterval,
             @Value("${billing.maintenance.enabled:true}") boolean maintenanceEnabled) {
         this.billingRecords = billingRecords;
-        this.transactions = transactions;
+        this.totals = totals;
         this.roster = roster;
         this.window = window;
         this.maintenanceInterval = maintenanceInterval;
@@ -75,10 +75,10 @@ public class MoneyFlowService {
 
         Map<String, Double> lifetimeRevenueByZone = new HashMap<>();
         Map<TransactionType, Double> totalByType = new EnumMap<>(TransactionType.class);
-        for (TransactionTotalRow row : transactions.totalsByZoneAndType()) {
-            totalByType.merge(row.getType(), row.getAmountRupees(), Double::sum);
-            if (row.getType() == TransactionType.BILL_DEBIT) {
-                lifetimeRevenueByZone.merge(row.getZoneId(), row.getAmountRupees(), Double::sum);
+        for (WalletZoneTypeTotal row : totals.totalsByZoneAndType()) {
+            totalByType.merge(row.type(), row.amountRupees(), Double::sum);
+            if (row.type() == TransactionType.BILL_DEBIT) {
+                lifetimeRevenueByZone.merge(row.zoneId(), row.amountRupees(), Double::sum);
             }
         }
 
