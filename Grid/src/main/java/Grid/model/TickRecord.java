@@ -27,6 +27,14 @@ import jakarta.persistence.UniqueConstraint;
  * the sole writer of its own tick counter. It guards against the one scenario that could still
  * double-write it -- a manual replay during testing -- the same way {@link JpaTickHistoryRecorder}
  * checks {@code existsByTickNumber} first rather than relying on the constraint to fail loudly.
+ *
+ * <p>
+ * The primary key and this unique constraint, as annotated below, are both single-column --
+ * that's Hibernate's starting point on a fresh database, not the final shape. {@link
+ * GridHypertableSetup} replaces both with composite versions that include {@code recorded_at}
+ * (TimescaleDB requires the partitioning column in every unique constraint on a hypertable) the
+ * first time it runs. {@code id} stays the JPA {@code @Id} regardless -- only the database-level
+ * constraint shape changes.
  */
 @Entity
 @Table(name = "tick_record",

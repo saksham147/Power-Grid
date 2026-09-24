@@ -2,7 +2,13 @@ name: powergrid
 
 services:
   postgres:
-    image: postgres:latest
+    # timescale/timescaledb is a Postgres distribution with the TimescaleDB extension
+    # preinstalled -- same wire protocol, same data directory layout, same 18.6 this replaces
+    # (confirmed via `docker run --rm timescale/timescaledb:latest-pg18 postgres --version`), so
+    # this is a drop-in swap against the existing volume. The extension itself still has to be
+    # enabled once per database (`CREATE EXTENSION IF NOT EXISTS timescaledb;`) -- the image
+    # bundles the extension's files, it doesn't activate it in a database that predates it.
+    image: timescale/timescaledb:latest-pg18
     environment:
       POSTGRES_DB: powergrid
       POSTGRES_USER: powergrid
@@ -13,6 +19,12 @@ services:
       - "postgres"
       - "-c"
       - "max_connections=200"
+      # TimescaleDB registers background workers (for continuous-aggregate refreshes and
+      # retention-policy jobs) at server start, so unlike almost every other extension it cannot
+      # be loaded dynamically by CREATE EXTENSION alone -- it has to be preloaded here, and the
+      # server restarted, before that statement will succeed at all.
+      - "-c"
+      - "shared_preload_libraries=timescaledb"
     ports:
       # Host port 5433, not 5432: a native PostgreSQL service may already own 5432, and a
       # published container port loses to it silently -- connections reach the wrong server and

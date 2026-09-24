@@ -16,10 +16,12 @@ import Grid.model.TickRecordRepository;
 import Grid.simulation.SimulationClock;
 
 /**
- * Read-only: the tick-by-tick history {@link Grid.history.TickHistoryPruneJob} keeps a rolling
- * window of. Its own controller rather than a method on {@link GridController}, which is the live
- * clock -- this is a query over what it already recorded, the same split {@code
- * Billing.api.MoneyFlowController} makes from {@code WalletController}.
+ * Read-only: the tick-by-tick history {@code grid.tick_record} keeps a rolling window of --
+ * TimescaleDB's own retention policy prunes it now, not application code (see the migration note
+ * on the {@code postgres} service in {@code docker-compose.yml}). Its own controller rather than a
+ * method on {@link GridController}, which is the live clock -- this is a query over what it
+ * already recorded, the same split {@code Billing.api.MoneyFlowController} makes from {@code
+ * WalletController}.
  */
 @RestController
 @RequestMapping("/api/grid")
