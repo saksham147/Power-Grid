@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,8 +17,15 @@ import org.springframework.stereotype.Component;
  * table is a TimescaleDB continuous aggregate now (see {@link GenerationHypertableSetup}), and
  * Spring Data JPA's {@code @Query} methods need a mapped {@code @Entity} behind them, which a view
  * Hibernate never created and must never try to manage the DDL of.
+ *
+ * <p>
+ * {@code @DependsOn}: {@code SimulationRunner}'s constructor reads {@link #findMaxLastTick()} to
+ * resume its tick counter, so on a fresh database this bean can be asked a question before {@link
+ * GenerationHypertableSetup} has created the view -- Spring orders beans by their dependencies, and
+ * nothing else tied the two together. It only ever worked on a database that already had the view.
  */
 @Component
+@DependsOn("generationHypertableSetup")
 public class GenerationRollupQuery {
 
     /** The schema name is spliced into SQL, so it is checked to be a bare identifier first --
