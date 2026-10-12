@@ -223,11 +223,34 @@ services:
     mem_limit: 380m
     restart: unless-stopped
 
+  # Production frontend: the dashboard compiled to static files and served by nginx, which also
+  # reverse-proxies the five backend APIs (see Frontend/nginx.conf). Host port stays 5173, so the
+  # dashboard is still at http://localhost:5173 -- only the container side moved to nginx's 80.
   frontend:
     build:
       context: ./Frontend
+      target: production
     ports:
-      - "5173:5173"
+      - "5173:80"
+    depends_on:
+      - producer
+      - customer
+      - grid
+      - distributor
+      - billing
+    mem_limit: 64m
+    restart: unless-stopped
+
+  # Opt-in hot-reload frontend for working on the UI: `docker compose --profile dev up -d
+  # frontend-dev`, then http://localhost:5174. It sits beside the production one on its own port
+  # and is never started by a plain `docker compose up -d`.
+  frontend-dev:
+    profiles: ["dev"]
+    build:
+      context: ./Frontend
+      target: dev
+    ports:
+      - "5174:5173"
     environment:
       # Service names, not localhost -- see vite.config.js's own comment on why.
       PRODUCER_HOST: producer
@@ -253,7 +276,6 @@ services:
       - distributor
       - billing
     mem_limit: 350m
-    restart: unless-stopped
 
 volumes:
   postgres-data:

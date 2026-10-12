@@ -238,7 +238,7 @@ stands alone, so retention jobs can truncate history in any order without touchi
 | Messaging | Apache Kafka (KRaft mode, no ZooKeeper) |
 | Persistence | Postgres 18 (schema-per-service), Redis |
 | Frontend | React 19, Vite 8, TanStack Query, Tailwind CSS 4 (plain DOM + inline SVG, no canvas/graph library) |
-| Containers | Docker Compose — multi-stage builds for each Java service, a dev-mode container for the frontend |
+| Containers | Docker Compose — multi-stage builds for each Java service; the frontend is a production build served by nginx (which also proxies the five APIs), with an opt-in hot-reload dev container |
 
 ## Repository layout
 
@@ -277,6 +277,17 @@ docker compose up -d postgres redis kafka   # just the infra, none of the app se
 cd Producer && ./mvnw spring-boot:run        # or Customer/Grid/Distributor/Billing
 cd Frontend && npm install && npm run dev
 ```
+
+For the frontend there is also a hot-reload container, so you never need Node installed. The
+default `frontend` container is the production build (compiled files served by nginx), which has
+no hot reload; the dev one is opt-in and runs beside it on its own port:
+
+```bash
+docker compose --profile dev up -d frontend-dev   # http://localhost:5174, edits reload live
+```
+
+After changing frontend code, `docker compose up -d --build frontend` rebuilds the production
+one.
 
 Each service's `./mvnw test` runs offline (no broker, no database) — the framework-free cores are
 tested with fakes, and only the thin adapter layer touches Spring/Kafka/JPA directly.
